@@ -48,6 +48,27 @@ else:
 # --------------------------------------------------------------------------
 # 2. SurfaceDuo1NoSb.dsc - add the FdtLib / UniXNULib library class mappings
 # --------------------------------------------------------------------------
+# --------------------------------------------------------------------------
+# 1b. board.toml - make sure the Mu package trees are on the packages path
+# --------------------------------------------------------------------------
+# board.toml's [firmware] packages list was written for a revision where
+# ArmPkg still lived inside mu_basecore. Newer Mu trees moved it (and more)
+# into the mu_tiano_plus / mu_silicon_arm_tiano submodules, so the DSC fails
+# with "ArmPkg/Drivers/ArmGic/ArmGicDxe.inf is not found in packages path".
+board = Path("board.toml")
+if board.is_file():
+    text = board.read_text(encoding="utf-8")
+    m = re.search(r"^packages\s*=\s*\[(.*?)^\]", text, re.S | re.M)
+    if m:
+        have = re.findall(r'"([^"]+)"', m.group(1))
+        add = ['{uefi}/%s' % p for p in ("Common/MU_TIANO", "Silicon/Arm/MU_TIANO")
+               if (root / p).is_dir() and "{uefi}/%s" % p not in have]
+        if add:
+            body = "\n".join('  "%s",' % e for e in have + add)
+            text = text[:m.start()] + "packages = [\n" + body + "\n]" + text[m.end():]
+            board.write_text(text, encoding="utf-8")
+        print("  added to packages: %s" % (", ".join(add) or "(nothing)"))
+
 dsc = root / "Platforms/SurfaceDuo1Pkg/SurfaceDuo1NoSb.dsc"
 if dsc.exists():
     text = dsc.read_text(encoding="utf-8")
