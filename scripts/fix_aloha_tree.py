@@ -46,22 +46,73 @@ else:
     print("  skip      PlatformBuildNoSb.py not present")
 
 # --------------------------------------------------------------------------
-# 1c. LibUfdt - vendor the copy that compiles with a modern clang
+# 1c. LibUfdt - give it the headers and the strtoul it assumes
 # --------------------------------------------------------------------------
 # QcomModulePkg/Library/LibUfdt/sysdeps/libufdt_sysdeps_vendor.c calls
-# AllocatePool/FreePool/strtoul without the headers (and without the local
-# strtoul fallback) that newer revisions added. clang treats an implicit
-# declaration as an error, so the DXE build dies on this one file. The fixed
-# upstream copy is vendored here and installed only when needed.
+# AllocatePool/FreePool/strtoul with no declaration in scope; clang makes an
+# implicit declaration an error, so the DXE build dies on this single file.
+# Later revisions fixed it by including DebugLib/MemoryAllocationLib and by
+# providing a local strtoul built on BaseLib. Replacing the whole file is too
+# invasive (the newer one also redefines strcmp, which clashes with this
+# revision's string.h), so only those two things are added here.
+# Deliberately self-contained: the library's INF lists MemoryAllocationLib
+# (the file already calls AllocatePool) but not necessarily BaseLib, so a
+# strtoul built on AsciiStrDecimalToUintnS would compile and then fail to link.
+STRToul = """
+#ifdef strtoul
+#undef strtoul
+#endif
+
+static unsigned long dto_local_strtoul(const char *nptr, char **endptr, int base)
+{
+  unsigned long value = 0;
+  const char *p = nptr;
+
+  while (*p == ' ' || *p == '\\t') {
+    p++;
+  }
+  if (base == 0) {
+    if (p[0] == '0' && (p[1] == 'x' || p[1] == 'X')) { base = 16; p += 2; }
+    else if (p[0] == '0') { base = 8; }
+    else { base = 10; }
+  }
+  for (; *p != '\\0'; p++) {
+    int digit;
+    if (*p >= '0' && *p <= '9')       { digit = *p - '0'; }
+    else if (*p >= 'a' && *p <= 'f')  { digit = *p - 'a' + 10; }
+    else if (*p >= 'A' && *p <= 'F')  { digit = *p - 'A' + 10; }
+    else { break; }
+    if (digit >= base) { break; }
+    value = value * (unsigned long)base + (unsigned long)digit;
+  }
+  if (endptr != NULL) {
+    *endptr = (char *)p;
+  }
+  return value;
+}
+"""
+
 ufdt = root / "Platforms/QcomModulePkg/Library/LibUfdt/sysdeps/libufdt_sysdeps_vendor.c"
-fixed = Path(__file__).resolve().parent / "fixes/libufdt_sysdeps_vendor.c"
-if ufdt.is_file() and fixed.is_file():
+if ufdt.is_file():
     text = ufdt.read_text(encoding="utf-8")
-    if "MemoryAllocationLib.h" not in text or "strtoul (" not in text:
-        ufdt.write_text(fixed.read_text(encoding="utf-8"), encoding="utf-8")
-        print("  patched  LibUfdt sysdeps (clang-safe copy installed)")
-    else:
-        print("  ok       LibUfdt sysdeps already clang-safe")
+    changed = False
+    if "<Library/MemoryAllocationLib.h>" not in text:
+        text = text.replace('#include "libufdt_sysdeps.h"',
+                            '#include "libufdt_sysdeps.h"\n'
+                            '#include <Library/MemoryAllocationLib.h>', 1)
+        changed = True
+    if "dto_local_strtoul" not in text:
+        anchor = "unsigned long int dto_strtoul"
+        if anchor in text:
+            text = text.replace(anchor, STRToul.strip() + "\n\n" + anchor, 1)
+            text = text.replace("return strtoul(nptr, endptr, base);",
+                                "return dto_local_strtoul(nptr, endptr, base);")
+            changed = True
+        else:
+            print("  WARN     dto_strtoul anchor missing; cannot add strtoul")
+    if changed:
+        ufdt.write_text(text, encoding="utf-8")
+    print(("  patched  " if changed else "  ok       ") + "LibUfdt sysdeps (headers + strtoul)")
 else:
     print("  skip     LibUfdt sysdeps not present")
 
