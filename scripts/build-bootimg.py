@@ -9,6 +9,7 @@ FDT's /chosen/linux,initrd-start/-end and keep the rest byte for byte.
 import argparse
 import gzip
 import json
+import os
 import struct
 import sys
 import tempfile
@@ -104,8 +105,10 @@ from unixnu import bootimg  # noqa: E402
 from unixnu.util import run, sha256_file  # noqa: E402
 from tree import assemble  # noqa: E402
 
+FW_TARGET = os.environ.get("FW_TARGET", "DEBUG")
+
 parser = argparse.ArgumentParser()
-parser.add_argument("--fd", default=str(ROOT / "uefi" / "Build" / "SurfaceDuo1Pkg" / "DEBUG_CLANGPDB" / "FV" / "SM8150_EFI.fd"))
+parser.add_argument("--fd", default=str(ROOT / "uefi" / "Build" / "SurfaceDuo1Pkg" / f"{FW_TARGET}_CLANGPDB" / "FV" / "SM8150_EFI.fd"))
 parser.add_argument("--dtb", default=str(ROOT / "inputs" / "uefi-prebuilt" / "raphael.dtb"))
 parser.add_argument("--ramdisk", default=str(ROOT / "out" / "raphael" / "payload" / "payload.img"))
 parser.add_argument("-o", "--output", default=str(ROOT / "out" / "raphael" / "boot" / "boot-raphael.img"))
