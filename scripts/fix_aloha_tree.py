@@ -143,6 +143,45 @@ else:
     print("  skip     MdePkg.dec not present")
 
 # --------------------------------------------------------------------------
+# 1e. MdePkg/Include/Guid/Fdt.h - the header that declares the GUID above
+# --------------------------------------------------------------------------
+# Declaring the GUID in MdePkg.dec is not enough: UniXNULib/Boot.c does
+# #include <Guid/Fdt.h>, and that header only exists in the newer mu_basecore
+# revisions, so the compile died with "'Guid/Fdt.h' file not found".
+FDT_H = """/** @file
+  GUID for the Flattened Device Tree (FDT) table.
+
+  The mu_basecore revision pinned by some Aloha releases predates this header,
+  while UniXNULib includes it unconditionally.
+
+  Copyright (c) Microsoft Corporation.
+  SPDX-License-Identifier: BSD-2-Clause-Patent
+
+**/
+
+#ifndef __FDT_GUID_H__
+#define __FDT_GUID_H__
+
+#define EFI_FDT_GUID \\
+  { 0xb1b621d5, 0xf19c, 0x41a5, { 0x83, 0x0b, 0xd9, 0x15, 0x2c, 0x69, 0xaa, 0xe0 } }
+
+extern EFI_GUID gFdtTableGuid;
+
+#endif
+"""
+
+fdt_h = root / "MU_BASECORE/MdePkg/Include/Guid/Fdt.h"
+if dec.is_file():
+    if fdt_h.is_file():
+        print("  ok       MdePkg/Include/Guid/Fdt.h already present")
+    else:
+        fdt_h.parent.mkdir(parents=True, exist_ok=True)
+        fdt_h.write_text(FDT_H, encoding="utf-8")
+        print("  patched  MdePkg/Include/Guid/Fdt.h added")
+else:
+    print("  skip     MdePkg not present")
+
+# --------------------------------------------------------------------------
 # 2. SurfaceDuo1NoSb.dsc - add the FdtLib / UniXNULib library class mappings
 # --------------------------------------------------------------------------
 # --------------------------------------------------------------------------
