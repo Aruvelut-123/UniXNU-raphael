@@ -93,13 +93,30 @@ jobs:
       - name: Stage the kernel as kernel.macho
         run: |
           mkdir -p raphael/inputs/raphael
-          K=$(find dxb/fakeroot/System/Library/Kernels -type f -name 'kernel.*' 2>/dev/null | head -1)
-          [ -n "$K" ] || K=$(find dxb/build -type f -name 'kernel.*' 2>/dev/null | head -1)
+          # Accept ONLY a real 64-bit little-endian Mach-O (magic cffaedfe).
+          # The build tree also contains text files named kernel.* (KPI symbol
+          # export lists), and picking one of those silently produces a bogus
+          # kernel.macho. Portable POSIX filter (BSD find has no -printf).
+          find dxb -type f -name 'kernel*' 2>/dev/null > /tmp/cands.txt
+          echo "=== all kernel* files in the build tree ==="
+          while IFS= read -r f; do
+            echo "  $(wc -c < "$f" | tr -d ' ') $f"
+          done < /tmp/cands.txt
+          K=""
+          while IFS= read -r f; do
+            sz=$(wc -c < "$f" | tr -d ' ')
+            [ "$sz" -gt 2000000 ] || continue
+            magic=$(od -An -tx1 -N4 "$f" | tr -d ' \n')
+            if [ "$magic" = "cffaedfe" ]; then K="$f"; break; fi
+          done < /tmp/cands.txt
           if [ -z "$K" ]; then
-            echo "kernel binary not found; listing build tree:" >&2
-            find dxb -type f -name 'kernel.*' 2>/dev/null | head -20 >&2
+            echo "no Mach-O kernel found; candidates (name/size/type):" >&2
+            while IFS= read -r f; do
+              echo "  $(wc -c < "$f" | tr -d ' ') $(file -b "$f") $f" >&2
+            done < /tmp/cands.txt
             exit 1
           fi
+          echo "picked kernel: $K"
           cp "$K" raphael/inputs/raphael/kernel.macho
           ls -la raphael/inputs/raphael/kernel.macho
 
@@ -172,6 +189,25 @@ jobs:
 
       - name: Pack the Android boot image
         run: python3 scripts/build-bootimg.py
+
+      - name: Dump build logs on failure
+        if: failure()
+        run: |
+          echo "=== build logs ==="
+          ls -la out/raphael/logs/ 2>/dev/null || echo "(no logs dir)"
+          for f in out/raphael/logs/*.log; do
+            [ -f "$f" ] || continue
+            echo "----- $f -----"
+            tail -n 60 "$f"
+          done
+
+      - name: Upload build logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-logs
+          path: out/raphael/logs/
+          if-no-files-found: ignore
 
       - name: Report
         run: cat out/raphael/boot/boot.json
