@@ -46,6 +46,26 @@ else:
     print("  skip      PlatformBuildNoSb.py not present")
 
 # --------------------------------------------------------------------------
+# 1c. LibUfdt - vendor the copy that compiles with a modern clang
+# --------------------------------------------------------------------------
+# QcomModulePkg/Library/LibUfdt/sysdeps/libufdt_sysdeps_vendor.c calls
+# AllocatePool/FreePool/strtoul without the headers (and without the local
+# strtoul fallback) that newer revisions added. clang treats an implicit
+# declaration as an error, so the DXE build dies on this one file. The fixed
+# upstream copy is vendored here and installed only when needed.
+ufdt = root / "Platforms/QcomModulePkg/Library/LibUfdt/sysdeps/libufdt_sysdeps_vendor.c"
+fixed = Path(__file__).resolve().parent / "fixes/libufdt_sysdeps_vendor.c"
+if ufdt.is_file() and fixed.is_file():
+    text = ufdt.read_text(encoding="utf-8")
+    if "MemoryAllocationLib.h" not in text or "strtoul (" not in text:
+        ufdt.write_text(fixed.read_text(encoding="utf-8"), encoding="utf-8")
+        print("  patched  LibUfdt sysdeps (clang-safe copy installed)")
+    else:
+        print("  ok       LibUfdt sysdeps already clang-safe")
+else:
+    print("  skip     LibUfdt sysdeps not present")
+
+# --------------------------------------------------------------------------
 # 2. SurfaceDuo1NoSb.dsc - add the FdtLib / UniXNULib library class mappings
 # --------------------------------------------------------------------------
 # --------------------------------------------------------------------------
