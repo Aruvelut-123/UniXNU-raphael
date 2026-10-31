@@ -36,7 +36,10 @@ permissions:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    # Pin the image: `ubuntu-latest` is now 26.04, whose archive has dropped
+    # apfs-fuse (and the 24.04 hfsplus/hfsprogs pairing is what upstream
+    # mkiosroot.sh is tested against).
+    runs-on: ubuntu-24.04
     timeout-minutes: 300
 
     steps:
@@ -59,9 +62,12 @@ jobs:
           df -h /
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            apfs-fuse hfsprogs rsync unzip curl python3 \
+            hfsprogs rsync unzip curl python3 \
             build-essential cmake pkg-config libfuse3-dev libbz2-dev zlib1g-dev \
             libattr1-dev libicu-dev libssl-dev
+          # Optional: the probe step builds upstream master when this is absent.
+          sudo apt-get install -y --no-install-recommends apfs-fuse \
+            || echo "::warning::apfs-fuse is not packaged here; the probe step will build it"
           echo "--- apfs-fuse ---"
           which apfs-fuse && apfs-fuse --help 2>&1 | head -3 || true
           echo "--- hfsprogs ---"
@@ -109,9 +115,14 @@ jobs:
           }
 
           ok=1
-          probe "dmg/${{ inputs.os_dmg }}" /tmp/probe_os || ok=0
-          probe "dmg/${{ inputs.sysos_dmg }}" /tmp/probe_sys || ok=0
-          probe "dmg/${{ inputs.appos_dmg }}" /tmp/probe_app || ok=0
+          if command -v apfs-fuse >/dev/null 2>&1; then
+            probe "dmg/${{ inputs.os_dmg }}" /tmp/probe_os || ok=0
+            probe "dmg/${{ inputs.sysos_dmg }}" /tmp/probe_sys || ok=0
+            probe "dmg/${{ inputs.appos_dmg }}" /tmp/probe_app || ok=0
+          else
+            echo "apfs-fuse is not installed"
+            ok=0
+          fi
 
           if [ "$ok" = 1 ]; then
             echo "packaged apfs-fuse is able to read all three images"
