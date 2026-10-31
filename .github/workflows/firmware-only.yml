@@ -190,7 +190,17 @@ jobs:
           if [ -f uefi/MU_BASECORE/BaseTools/Source/C/bin/GenFw ]; then
             echo "host tools already present"; exit 0
           fi
-          make -C uefi/MU_BASECORE/BaseTools/Source/C -j8 \
+          # The PCCTS sub-directories build with their own makefile and their
+          # own CFLAGS, so EXTRA_OPTFLAGS never reaches them. Put a compiler
+          # wrapper on PATH instead: every cc/gcc invocation, at any depth,
+          # then gets an older C standard.
+          WRAP="$RUNNER_TEMP/legacycc"
+          mkdir -p "$WRAP"
+          for c in cc gcc; do
+            printf '#!/bin/sh\nexec /usr/bin/%s -std=gnu17 "$@"\n' "$c" > "$WRAP/$c"
+            chmod +x "$WRAP/$c"
+          done
+          PATH="$WRAP:$PATH" make -C uefi/MU_BASECORE/BaseTools/Source/C -j8 \
             EXTRA_OPTFLAGS="-Wno-error -std=gnu17"
           ls -l uefi/MU_BASECORE/BaseTools/Source/C/bin/GenFw
 
