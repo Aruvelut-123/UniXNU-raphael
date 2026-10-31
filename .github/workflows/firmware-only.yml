@@ -145,10 +145,22 @@ jobs:
             cat >> "$DEV/DXE.dsc.inc" <<'DSC'
 
           # UniXNU / DarwinBoot (appended for xiaomi-raphael)
-          AndromedaPkg/Driver/ShengBootMemoryDxe/ShengBootMemoryDxe.inf
-          UniXNUPkg/Application/UniXNU/UniXNU.inf
-          UniXNUPkg/Driver/UniXNUDxe/UniXNUDxe.inf
-          DarwinBootPkg/Driver/DarwinBoot.inf
+          AndromedaPkg/Driver/ShengBootMemoryDxe/ShengBootMemoryDxe.inf {
+            <LibraryClasses>
+              FdtLib|MdePkg/Library/BaseFdtLib/BaseFdtLib.inf
+          }
+          UniXNUPkg/Application/UniXNU/UniXNU.inf {
+            <LibraryClasses>
+              FdtLib|MdePkg/Library/BaseFdtLib/BaseFdtLib.inf
+          }
+          UniXNUPkg/Driver/UniXNUDxe/UniXNUDxe.inf {
+            <LibraryClasses>
+              FdtLib|MdePkg/Library/BaseFdtLib/BaseFdtLib.inf
+          }
+          DarwinBootPkg/Driver/DarwinBoot.inf {
+            <LibraryClasses>
+              FdtLib|MdePkg/Library/BaseFdtLib/BaseFdtLib.inf
+          }
           DSC
             cat >> "$DEV/DXE.inc" <<'FDF'
 

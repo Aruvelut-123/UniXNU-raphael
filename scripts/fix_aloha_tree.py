@@ -182,6 +182,36 @@ else:
     print("  skip     MdePkg not present")
 
 # --------------------------------------------------------------------------
+# 1f. BaseFdtLib - upgrade to the revision that exports the whole API
+# --------------------------------------------------------------------------
+# UniXNU's ShengBootMemoryDxe calls FdtTotalSize/FdtPathOffset/FdtGetProp.
+# The mu_basecore that Aloha 2412.74 pins stops at FdtGetProperty, so the DXE
+# links with "undefined symbol: FdtTotalSize". Both revisions lay the sources
+# out identically (libfdt/libfdt + the same two .c files), so swap them in
+# place and leave the DSC mapping pointing at the same INF path.
+fixes = Path(__file__).resolve().parent / "fixes"
+fdt_lib_h = root / "MU_BASECORE/MdePkg/Include/Library/FdtLib.h"
+if fdt_lib_h.is_file():
+    if "FdtTotalSize" in fdt_lib_h.read_text(encoding="utf-8"):
+        print("  ok       BaseFdtLib already exports the full Fdt* API")
+    else:
+        src = fixes / "FdtLib.h"
+        if src.is_file():
+            fdt_lib_h.write_text(src.read_text(encoding="utf-8"), encoding="utf-8")
+            libdir = root / "MU_BASECORE/MdePkg/Library/BaseFdtLib"
+            for name in ("BaseFdtLib.inf", "FdtLib.c", "LibFdtWrapper.c",
+                         "LibFdtSupport.h"):
+                s = fixes / "BaseFdtLib" / name
+                if s.is_file() and libdir.is_dir():
+                    (libdir / name).write_text(s.read_text(encoding="utf-8"),
+                                               encoding="utf-8")
+            print("  patched  BaseFdtLib upgraded (full Fdt* API)")
+        else:
+            print("  WARN     no vendored BaseFdtLib to install")
+else:
+    print("  skip     MdePkg/Include/Library/FdtLib.h not present")
+
+# --------------------------------------------------------------------------
 # 2. SurfaceDuo1NoSb.dsc - add the FdtLib / UniXNULib library class mappings
 # --------------------------------------------------------------------------
 # --------------------------------------------------------------------------
