@@ -28,10 +28,10 @@ fastboot boot boot-raphael.img
 
 1. **Fork** this repository to your own GitHub account.
 2. Go to **Actions → “build-raphael”** and click **Run workflow**.
-   - The workflow does everything: it checks out the UniXNU driver, the Project Aloha UEFI, and the guacamole SM8150 reference; builds the SM8150 XNU kernel on a free `macos-14` runner; then on `ubuntu-latest` it fetches the raphael/SM8150 device tree, automatically extracts the iPhone X (`D22AP`) base Apple Device Tree from the public IPSW, builds the UEFI firmware volume, packs the FAT payload, and produces the boot image.
+   - The workflow does everything: on a free `macos-14` runner it builds the SM8150 XNU 8796 kernel the same public way `guacamole` does (`dipa-studio/ios-sweet` → `blacktop/darwin-xnu-build`, `MACHINE_CONFIG=SWEET`); then on `ubuntu-latest` it checks out the UniXNU driver and Project Aloha UEFI, fetches the raphael/SM8150 device tree, automatically extracts the iPhone X (`D22AP`) base Apple Device Tree from the public IPSW, builds the UEFI firmware volume, packs the FAT payload, and produces the boot image.
 3. When it finishes, download the **`boot-raphael.img`** artifact.
 
-That's it. The iPhone X base device tree (an Apple artifact) is fetched and extracted for you automatically by `scripts/get-base-d22ap.sh` — no manual IPSW work.
+That's it. Every input the build needs is either in this repo or fetched from a **public** source — there is no private kernel defconfig and no manual IPSW work.
 
 ---
 
@@ -54,7 +54,7 @@ If your device has **6 GB** of RAM (instead of 8 GB), open `board.toml` and lowe
 
 | Piece | Source | Why |
 |-------|--------|-----|
-| SM8150 XNU kernel | `wochgn/UniXNU-guacamole` → `guacamole_8796_defconfig` on `macos-14` | Identical silicon ⇒ identical kernel; no private defconfig needed |
+| SM8150 XNU kernel | `dipa-studio/ios-sweet` → `blacktop/darwin-xnu-build` on `macos-14` (`MACHINE_CONFIG=SWEET`) | The exact public path guacamole uses; identical silicon ⇒ identical kernel. **No private defconfig** — this is the standard XNU 8796 build. |
 | Project Aloha UEFI | `Project-Aloha/mu_aloha_platforms` + 3 SM8150 patches | Boots XNU on SM8150; `xiaomi-raphael` device is cloned from `oneplus-guacamole` |
 | `raphael.dtb` | Reuses the SM8150 DTB shipped in the Aloha UEFI tree (`get-raphael-dtb.sh`) | Same SoC ⇒ same memory map / MMIO |
 | `base-d22ap.adt` | Auto-extracted from the public iPhone X (D22AP) iOS 16.7.16 IPSW (`get-base-d22ap.sh`) | Provides the real `/product` identity MobileGestalt expects |
