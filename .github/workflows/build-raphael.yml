@@ -163,7 +163,17 @@ jobs:
       - name: Host tools (EDK2 + UniXNU driver)
         run: |
           sudo apt-get update
-          sudo apt-get install -y cmake ninja-build uuid-dev bison flex nasm iasl gcc g++ python3-dev
+          sudo apt-get install -y cmake ninja-build uuid-dev bison flex nasm iasl gcc g++ python3-dev clang lld llvm
+          # UniXNU builds the firmware with EDK II's CLANGPDB tool chain and
+          # looks for clang / lld-link / llvm-lib / llvm-rc on PATH. Ubuntu
+          # ships them version-suffixed under /usr/lib/llvm-*/bin, so link the
+          # bare names the EDK II tools_def.txt expects.
+          for t in clang lld-link llvm-lib llvm-rc; do
+            if command -v "$t" >/dev/null 2>&1; then echo "have $t"; continue; fi
+            cand=$(ls /usr/lib/llvm-*/bin/"$t" /usr/bin/"$t"-* 2>/dev/null | sort -V | tail -1)
+            if [ -n "$cand" ]; then sudo ln -sf "$cand" "/usr/local/bin/$t"; echo "linked $t -> $cand"; else echo "MISSING $t"; fi
+          done
+          command -v clang lld-link llvm-lib llvm-rc
           pip install -r unixnu/requirements.txt || true
 
       - name: Apply the SM8150 patches (vendored in this repo)
