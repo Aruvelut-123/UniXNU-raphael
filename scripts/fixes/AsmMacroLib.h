@@ -73,3 +73,22 @@
 #endif
 
 #endif // ASM_MACRO_IO_LIBV8_H_
+
+//
+// ASM_FUNC above is borrowed from a mu_basecore revision whose
+// AArch64/ProcessorBind.h also defines these two helpers. The revision pinned
+// by older Aloha releases does not, which left "AARCH64_BTI(c)" reaching the
+// assembler as a bogus instruction. Define them here, guarded, so this header
+// is self-contained either way.
+//
+#ifndef _ASM_TYPE
+#ifdef __ELF__
+#define _ASM_TYPE(Name)  .type Name, %function
+#else
+#define _ASM_TYPE(Name)
+#endif
+#endif
+
+#ifndef AARCH64_BTI
+#define AARCH64_BTI(__type)
+#endif
