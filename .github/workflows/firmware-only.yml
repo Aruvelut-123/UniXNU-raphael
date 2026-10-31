@@ -18,6 +18,15 @@ on:
         default: full
         type: choice
         options: [full, no_darwinboot, bootshim_upstream]
+      device:
+        description: >
+          Aloha TARGET_DEVICE. xiaomi-raphael is K20 Pro's own directory, but
+          the only Aloha image confirmed to reach the UEFI Shell on this phone
+          carries xiaomi-cepheus (Mi 9) assets - the two are platform twins.
+        required: false
+        default: xiaomi-raphael
+        type: choice
+        options: [xiaomi-raphael, xiaomi-cepheus]
       kernel_run_id:
         description: workflow run that holds the raphael-kernel artifact
         required: false
@@ -90,6 +99,8 @@ jobs:
           git -C uefi apply ../patches/aloha-guacamole.patch
           # drivers/DarwinBoot is a SUBMODULE OF UniXNU, not of the Aloha tree
           git -C unixnu/drivers/DarwinBoot apply ../../../patches/darwinboot-guacamole.patch
+          sed -i 's|^TARGET_DEVICE = .*|TARGET_DEVICE = "${{ inputs.device }}"|' board.toml
+          grep -n 'TARGET_DEVICE' board.toml
           if [ "${{ inputs.variant }}" = "bootshim_upstream" ]; then
             git -C uefi checkout -- BootShim/BootShim.S
             echo "variant: BootShim.S reverted to upstream (no DTB-pointer store)"
@@ -100,7 +111,7 @@ jobs:
           # without this the firmware volume has no DarwinBoot at all and can
           # never boot XNU. Append the same modules to raphael's own files.
           if [ "${{ inputs.variant }}" != "no_darwinboot" ]; then
-            DEV=uefi/Platforms/SurfaceDuo1Pkg/Device/xiaomi-raphael
+            DEV=uefi/Platforms/SurfaceDuo1Pkg/Device/${{ inputs.device }}
             cat >> "$DEV/DXE.dsc.inc" <<'DSC'
 
           # UniXNU / DarwinBoot (appended for xiaomi-raphael)
