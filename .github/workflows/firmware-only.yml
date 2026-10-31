@@ -113,6 +113,9 @@ jobs:
             || echo "NOTE: some aloha hunks were rejected (see *.rej) - re-applying below"
           python3 scripts/fix_aloha_tree.py uefi
           find uefi -name '*.rej' -exec sh -c 'echo "--- REJECTED: $1"; cat "$1"' _ {} \; || true
+          # Same story for the submodule list: `git submodule update --init --
+          # <paths>` aborts on the first path this revision does not have.
+          python3 scripts/prune_submodules.py uefi board.toml
           # drivers/DarwinBoot is a SUBMODULE OF UniXNU, not of the Aloha tree
           git -C unixnu/drivers/DarwinBoot apply ../../../patches/darwinboot-guacamole.patch
           sed -i 's|^TARGET_DEVICE = .*|TARGET_DEVICE = "${{ inputs.device }}"|' board.toml
