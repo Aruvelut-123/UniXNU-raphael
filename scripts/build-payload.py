@@ -12,17 +12,20 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "unixnu" / "scripts"))
+sys.path.insert(0, str(ROOT / "scripts"))
 
 from unixnu import payload  # noqa: E402
+from tree import assemble  # noqa: E402
 
 WORK = ROOT / "out" / "raphael"
+TREE = assemble(WORK, ROOT / "unixnu", ROOT)
 LOGS = WORK / "logs"
 LOGS.mkdir(parents=True, exist_ok=True)
 
 board = tomllib.loads((ROOT / "board.toml").read_text())
 ctx = types.SimpleNamespace(
     board=board,
-    tree=ROOT / "build-tree",
+    tree=TREE,
     work=WORK,
     logs=LOGS,
     uefi=ROOT / "uefi",

@@ -163,7 +163,7 @@ jobs:
       - name: Host tools (EDK2 + UniXNU driver)
         run: |
           sudo apt-get update
-          sudo apt-get install -y cmake ninja-build uuid-dev bison flex nasm iasl gcc g++ python3-dev clang lld llvm
+          sudo apt-get install -y cmake ninja-build uuid-dev bison flex nasm iasl gcc g++ python3-dev clang lld llvm mtools
           # UniXNU builds the firmware with EDK II's CLANGPDB tool chain and
           # looks for clang / lld-link / llvm-lib / llvm-rc on PATH. Ubuntu
           # ships them version-suffixed under /usr/lib/llvm-*/bin, so link the

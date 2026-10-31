@@ -98,9 +98,11 @@ def patch_first_fdt_initrd(blob, start, end):
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "unixnu" / "scripts"))
+sys.path.insert(0, str(ROOT / "scripts"))
 
 from unixnu import bootimg  # noqa: E402
 from unixnu.util import run, sha256_file  # noqa: E402
+from tree import assemble  # noqa: E402
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--fd", default=str(ROOT / "uefi" / "Build" / "SurfaceDuo1Pkg" / "DEBUG_CLANGPDB" / "FV" / "SM8150_EFI.fd"))
@@ -110,9 +112,10 @@ parser.add_argument("-o", "--output", default=str(ROOT / "out" / "raphael" / "bo
 args = parser.parse_args()
 
 WORK = ROOT / "out" / "raphael"
+TREE = assemble(WORK, ROOT / "unixnu", ROOT)
 UEFI = ROOT / "uefi"
 board = tomllib.loads((ROOT / "board.toml").read_text())
-ctx = types.SimpleNamespace(board=board, work=WORK)
+ctx = types.SimpleNamespace(board=board, work=WORK, tree=TREE)
 image, base, size, requires_header, config = bootimg.settings(ctx, UEFI)
 fv = Path(args.fd).read_bytes()
 if len(fv) != size:

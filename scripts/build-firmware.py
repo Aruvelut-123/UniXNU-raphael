@@ -19,13 +19,15 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "unixnu" / "scripts"))
+sys.path.insert(0, str(ROOT / "scripts"))
 
 from unixnu import firmware  # noqa: E402
+from tree import assemble  # noqa: E402
 
 UEFI = ROOT / "uefi"
 EDK2 = UEFI / "MU_BASECORE"
-TREE = ROOT / "build-tree"
 WORK = ROOT / "out" / "raphael"
+TREE = assemble(WORK, ROOT / "unixnu", ROOT)
 LOGS = WORK / "logs"
 LOGS.mkdir(parents=True, exist_ok=True)
 
