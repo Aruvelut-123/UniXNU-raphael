@@ -9,13 +9,15 @@ on:
     inputs:
       variant:
         description: >
-          full              = the complete port (all patches).
-          bootshim_upstream = revert BootShim.S (no DTB-pointer store).
-          alohatree_only    = no UniXNU patches at all (Aloha tree as-is).
+          full              = complete port: all patches + UniXNU/DarwinBoot
+                              drivers added to the xiaomi-raphael device.
+          no_darwinboot     = all patches, but the UniXNU/DarwinBoot drivers
+                              are NOT added (plain Aloha UEFI for raphael).
+          bootshim_upstream = full, with BootShim.S reverted (no DTB store).
         required: false
         default: full
         type: choice
-        options: [full, bootshim_upstream, alohatree_only]
+        options: [full, no_darwinboot, bootshim_upstream]
       kernel_run_id:
         description: workflow run that holds the raphael-kernel artifact
         required: false
@@ -83,32 +85,6 @@ jobs:
 
       - name: Apply the SM8150 patches (vendored in this repo)
         run: |
-          if [ "${{ inputs.variant }}" = "alohatree_only" ]; then
-            echo "variant: no UniXNU patches applied"
-            # firmware.build reads Resources/Configs/<config>.toml; upstream has
-            # none, so write the same FD layout the prebuilt raphael image uses.
-            mkdir -p uefi/Resources/Configs
-            cat > uefi/Resources/Configs/raphael.toml <<'TOML'
-          [boot_shim]
-          requires_kernel_header = true
-
-          [uefi_fd]
-          base = 0x9FC00000
-          size = 0x00300000
-
-          [boot_image_kernel]
-          kernel_compression = "gzip"
-          append_dtb = true
-
-          [boot_image]
-          header_version = 0
-          base = 0x0
-          kernel_offset = 0x8000
-          tags_offset = 0x100
-          pagesize = 4096
-          TOML
-            exit 0
-          fi
           # NOTE: `git -C <dir> apply` resolves the patch path relative to <dir>.
           git -C unixnu apply ../patches/unixnu-guacamole.patch
           git -C uefi apply ../patches/aloha-guacamole.patch
@@ -117,6 +93,34 @@ jobs:
           if [ "${{ inputs.variant }}" = "bootshim_upstream" ]; then
             git -C uefi checkout -- BootShim/BootShim.S
             echo "variant: BootShim.S reverted to upstream (no DTB-pointer store)"
+          fi
+          # The vendored patches were written for oneplus-guacamole, so they add
+          # the UniXNU/DarwinBoot drivers to Device/oneplus-guacamole/*. raphael
+          # compiles Device/xiaomi-raphael/*, which the patch never touches -
+          # without this the firmware volume has no DarwinBoot at all and can
+          # never boot XNU. Append the same modules to raphael's own files.
+          if [ "${{ inputs.variant }}" != "no_darwinboot" ]; then
+            DEV=uefi/Platforms/SurfaceDuo1Pkg/Device/xiaomi-raphael
+            cat >> "$DEV/DXE.dsc.inc" <<'DSC'
+
+          # UniXNU / DarwinBoot (appended for xiaomi-raphael)
+          AndromedaPkg/Driver/ShengBootMemoryDxe/ShengBootMemoryDxe.inf
+          UniXNUPkg/Application/UniXNU/UniXNU.inf
+          UniXNUPkg/Driver/UniXNUDxe/UniXNUDxe.inf
+          DarwinBootPkg/Driver/DarwinBoot.inf
+          DSC
+            cat >> "$DEV/DXE.inc" <<'FDF'
+
+          # UniXNU / DarwinBoot (appended for xiaomi-raphael)
+          INF UniXNUPkg/Application/UniXNU/UniXNU.inf
+          INF UniXNUPkg/Driver/UniXNUDxe/UniXNUDxe.inf
+          INF DarwinBootPkg/Driver/DarwinBoot.inf
+          INF AndromedaPkg/Driver/ShengBootMemoryDxe/ShengBootMemoryDxe.inf
+          FDF
+            echo "variant: UniXNU/DarwinBoot appended to $DEV"
+            tail -6 "$DEV/DXE.dsc.inc"; tail -6 "$DEV/DXE.inc"
+          else
+            echo "variant: UniXNU/DarwinBoot NOT added (plain Aloha UEFI)"
           fi
 
       - name: Fetch raphael DTB (real android-raphael.dtb shipped by Aloha)
