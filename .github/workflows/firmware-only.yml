@@ -179,6 +179,21 @@ jobs:
           unzip -q -o /tmp/cryptobin.zip -d "$DEST"
           ls -l "$DEST/Driver/Bin/CryptoDriver.inc.dsc"
 
+      - name: Build the EDK II host tools (legacy C standard)
+        run: |
+          # mu_basecore dev/202405, which the 2412 Aloha tree pins, still ships
+          # the 1990s PCCTS sources. GitHub's runner defaults to GCC 14 = C23,
+          # where `int (*f)()` means `(void)`, so every PCCTS call site reports
+          # "too many arguments to function". Build them here with an older
+          # standard so the firmware step sees bin/GenFw and skips its own
+          # (flag-less) build.
+          if [ -f uefi/MU_BASECORE/BaseTools/Source/C/bin/GenFw ]; then
+            echo "host tools already present"; exit 0
+          fi
+          make -C uefi/MU_BASECORE/BaseTools/Source/C -j8 \
+            EXTRA_OPTFLAGS="-Wno-error -std=gnu17"
+          ls -l uefi/MU_BASECORE/BaseTools/Source/C/bin/GenFw
+
       - name: Build the UEFI firmware volume (SM8150 + xiaomi-raphael device)
         env:
           EXTRA_OPTFLAGS: "-Wno-error"
