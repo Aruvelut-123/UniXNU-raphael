@@ -208,12 +208,19 @@ def build(seed=None, qemu=False, highmem=False, device='sweet', dram_size=None, 
     product = [node('product', [ph()] + product_props)] if product_props else []
 
     # Identity of the iPhone X whose userland runs here: compatible[0] is
-    # hw.model/hw.target (D22AP), model is hw.machine/hw.product
-    # (iPhone10,3). The board/SOC strings (devices.py) stay for the
-    # SweetPlatformExpert matching and for the live FDT audits.
+    # hw.model/hw.target (D22AP), model is hw.machine/hw.product (iPhone10,3).
+    #
+    # The built-in SweetPlatformExpert personality is IONameMatch 'xiaomi,sweet'
+    # and IODTCompareNubName compares that key against the root's
+    # name/compatible/device_type/model, so every board built from the SWEET
+    # machine config must carry that exact string in /compatible - otherwise no
+    # IOPlatformExpert matches and IOPanicPlatform panics with "Unable to find
+    # driver for this platform". `platform_match` in devices.py supplies it;
+    # board/soc strings follow for identification and live-FDT audits.
+    platform_match = dev.get('platform_match', 'xiaomi,sweet')
     return node('device-tree', [
         ph(),
-        ('compatible', cstr('D22AP') + cstr('iPhone10,3') + cstr(dev['board_compat']) + cstr(dev['soc_compat']) + cstr('AppleARM')),
+        ('compatible', cstr('D22AP') + cstr('iPhone10,3') + cstr(platform_match) + cstr(dev['board_compat']) + cstr(dev['soc_compat']) + cstr('AppleARM')),
         ('model', cstr('iPhone10,3')),
         ('target-type', cstr('D22')),
         ('target-sub-type', cstr('D22AP')),

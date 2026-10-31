@@ -86,6 +86,10 @@ DEVICES = {
         # (1080x2340) and the board compatible differ.
         'name': 'Redmi K20 Pro / Mi 9T Pro (raphael, SM8150)',
         'board_compat': 'xiaomi,raphael',
+        # The kernel is built with MACHINE_CONFIG=SWEET, whose built-in
+        # platform expert only matches IONameMatch 'xiaomi,sweet'. The tree has
+        # to carry that string or the platform expert never binds.
+        'platform_match': 'xiaomi,sweet',
         'soc_compat': 'qcom,sm8150',
         # SM8150 DDR (audited on the raphael live FDT): reuse the documented
         # 3 GiB mid bank (carve-out free) so QEMU/lowmem runs have a valid window.
