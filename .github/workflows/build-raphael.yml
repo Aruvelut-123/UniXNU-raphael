@@ -34,6 +34,12 @@ jobs:
     # XNU 8796 needs Xcode 15 (iig ABI) -> macos-14, like ios-sweet.
     runs-on: macos-14
     timeout-minutes: 240
+    env:
+      # Without MACOS_VERSION build.sh pops an interactive gum menu and dies
+      # ("could not open TTY"). 13.5 == xnu-8796 == the iOS 16 generation.
+      MACOS_VERSION: "13.5"
+      MACHINE_CONFIG: SWEET
+      KERNEL_CONFIG: DEVELOPMENT
     steps:
       - uses: actions/checkout@v4
         with:
