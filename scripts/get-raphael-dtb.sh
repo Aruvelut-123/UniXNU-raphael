@@ -1,49 +1,49 @@
 #!/usr/bin/env bash
-# Fetch the SM8150 device tree for raphael.
+# Fetch the device tree blob for raphael.
 #
-# raphael is the SAME SM8150 SoC as guacamole (OnePlus 7 Pro) and nabu (Xiaomi
-# Pad 5). For the first bring-up we reuse the SM8150 DTB that already ships in
-# the Project Aloha UEFI tree (oneplus-guacamole/guacamole.dtb) -- the SoC is
-# identical, so the memory map / MMIO ranges match. A raphael-specific DTB
-# (extracted from the phone via TWRP, or from a LineageOS raphael boot.img)
-# can later be dropped at inputs/uefi-prebuilt/raphael.dtb to override.
+# The Project Aloha tree ships a first-class xiaomi-raphael device directory
+# that already contains a REAL raphael DTB:
+#   Platforms/SurfaceDuo1Pkg/Device/xiaomi-raphael/DeviceTreeBlob/Android/android-raphael.dtb
+#
+# Note: the sibling DeviceTreeBlob/Linux/linux-raphael.dtb in that tree is a
+# 6-byte placeholder, so it must not be used. Candidates smaller than 1 KiB are
+# skipped as placeholders.
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DEST="$ROOT/inputs/uefi-prebuilt/raphael.dtb"
 mkdir -p "$(dirname "$DEST")"
 
-if [ -f "$DEST" ]; then echo "raphael.dtb already present"; exit 0; fi
+if [ -f "$DEST" ] && [ "$(wc -c < "$DEST")" -gt 1024 ]; then
+  echo "raphael.dtb already present ($(wc -c < "$DEST") bytes)"
+  exit 0
+fi
 
-# 1) Preferred: the SM8150 DTB shipped in the Project Aloha UEFI tree.
-SRC="$ROOT/uefi/Platforms/SurfaceDuo1Pkg/Device/oneplus-guacamole/guacamole.dtb"
-if [ -f "$SRC" ]; then
+DEV="$ROOT/uefi/Platforms/SurfaceDuo1Pkg/Device"
+
+# 1) Preferred: the real raphael DTB shipped by Aloha (Android variant).
+# 2) Then the Linux variant of the same device dir.
+# 3) Last resort: the SM8150 guacamole DTB (identical SoC).
+CANDIDATES=(
+  "$DEV/xiaomi-raphael/DeviceTreeBlob/Android/android-raphael.dtb"
+  "$DEV/xiaomi-raphael/DeviceTreeBlob/Linux/linux-raphael.dtb"
+  "$DEV/oneplus-guacamole/DeviceTreeBlob/Android/android-guacamole.dtb"
+  "$DEV/oneplus-guacamole/DeviceTreeBlob/Linux/linux-guacamole.dtb"
+)
+
+for SRC in "${CANDIDATES[@]}"; do
+  [ -f "$SRC" ] || continue
+  SZ=$(wc -c < "$SRC")
+  if [ "$SZ" -le 1024 ]; then
+    echo "skip placeholder DTB: $SRC ($SZ bytes)"
+    continue
+  fi
   cp "$SRC" "$DEST"
-  echo "copied SM8150 DTB from Aloha UEFI tree -> $DEST"
-  echo "(override later with a raphael-specific DTB extracted from the phone)"
+  echo "copied DTB ($SZ bytes) from ${SRC#$ROOT/} -> $DEST"
   exit 0
-fi
+done
 
-# 2) Fallback: extract from a LineageOS raphael boot.img if provided.
-if [ -n "${RAPHAEL_BOOTIMG:-}" ] && [ -f "$RAPHAEL_BOOTIMG" ]; then
-  pip install --quiet extract-dtb 2>/dev/null || true
-  python3 - "$RAPHAEL_BOOTIMG" "$DEST" <<'PY'
-import sys, os
-try:
-    from extract_dtb import extract_dtbs
-except Exception as e:
-    sys.exit("extract-dtb unavailable: " + str(e))
-src, dst = sys.argv[1], sys.argv[2]
-out = extract_dtbs(src)
-best = max(out, key=lambda p: os.path.getsize(p))
-os.replace(best, dst)
-print("extracted", best, "->", dst)
-PY
-  exit 0
-fi
-
-echo "ERROR: could not locate a SM8150 DTB." >&2
-echo "Options:" >&2
-echo "  - let the workflow use the Aloha UEFI tree DTB (default), or" >&2
-echo "  - set RAPHAEL_BOOTIMG=/path/to/lineage-raphael-boot.img, or" >&2
-echo "  - drop a raphael DTB at $DEST" >&2
+echo "ERROR: no usable raphael/SM8150 DTB found in the Aloha tree." >&2
+echo "Expected one of:" >&2
+for SRC in "${CANDIDATES[@]}"; do echo "  - ${SRC#$ROOT/}" >&2; done
+echo "You can also drop a raphael DTB at $DEST" >&2
 exit 1

@@ -55,10 +55,20 @@ If your device has **6 GB** of RAM (instead of 8 GB), open `board.toml` and lowe
 | Piece | Source | Why |
 |-------|--------|-----|
 | SM8150 XNU kernel | `dipa-studio/ios-sweet` → `blacktop/darwin-xnu-build` on `macos-14` (`MACHINE_CONFIG=SWEET`) | The exact public path guacamole uses; identical silicon ⇒ identical kernel. **No private defconfig** — this is the standard XNU 8796 build. |
-| Project Aloha UEFI | `Project-Aloha/mu_aloha_platforms` + 3 SM8150 patches | Boots XNU on SM8150; `xiaomi-raphael` device is cloned from `oneplus-guacamole` |
-| `raphael.dtb` | Reuses the SM8150 DTB shipped in the Aloha UEFI tree (`get-raphael-dtb.sh`) | Same SoC ⇒ same memory map / MMIO |
+| Project Aloha UEFI | `Project-Aloha/mu_aloha_platforms` + 3 SM8150 patches | Boots XNU on SM8150. The tree **already ships a first-class `xiaomi-raphael` device directory**, so nothing is cloned — `TARGET_DEVICE=xiaomi-raphael` selects it and derives `FDT=raphael.dtb` |
+| `raphael.dtb` | The **real raphael DTB** shipped by Aloha: `Device/xiaomi-raphael/DeviceTreeBlob/Android/android-raphael.dtb` (`get-raphael-dtb.sh`) | Not a reused/guess DTB — Aloha has one for this exact phone. (The sibling `Linux/linux-raphael.dtb` is a 6-byte placeholder and is skipped.) |
 | `base-d22ap.adt` | Auto-extracted from the public iPhone X (D22AP) iOS 16.7.16 IPSW (`get-base-d22ap.sh`) | Provides the real `/product` identity MobileGestalt expects |
 | `raphael` ADT | `scripts/mkadt.py --device raphael` | D22AP identity + raphael 1080×2340 panel + SM8150 MMIO |
+
+### Why `MACHINE_CONFIG=SWEET` is right for an SM8150
+
+`ios-sweet`'s public XNU tree defines the ARM64 board config `SWEET` (originally for the Redmi Note 10 Pro, SM7150). It is **not SoC-specific** — it is a generic Qualcomm ARM64 profile, and every value matches SM8150/Kryo 485:
+
+- Qualcomm's architected-timer PPI numbering → virtual timer **INTID 19** (the ADT profile uses the same value)
+- **GICv3**, `GICR_PE_SIZE 0x20000`, two security states (Group 0 owned by TrustZone)
+- **16 KiB pages**, `-march=armv8.2-a+crypto`, **no pointer authentication** (Kryo 485 has none)
+
+So the publicly buildable `SWEET` kernel is the correct kernel for raphael; no private per-device XNU config exists or is needed.
 
 The `scripts/` directory contains the full, self-contained toolchain (`adt.py`, `devices.py`, `mkadt.py`, `build-firmware.py`, `build-payload.py`, `build-bootimg.py`, `get-raphael-dtb.sh`, `get-base-d22ap.sh`). You can reproduce the whole build locally; the only network input is the public IPSW (for the D22AP base tree) and the public git trees.
 
