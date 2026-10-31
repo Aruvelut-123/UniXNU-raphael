@@ -26,8 +26,17 @@ Android sparse format (little endian):
   chunk header (12 bytes)
     u16 chunk_type   0xCAC1 raw / 0xCAC2 fill / 0xCAC3 don't care
     u16 reserved
-    u32 chunk_sz     blocks covered by this chunk
-    u32 total_sz     bytes of this chunk including its header
+    u32 total_sz     blocks covered by this chunk      <-- NOTE: reversed!
+    u32 chunk_sz     bytes of this chunk including its header
+
+  AOSP's libsparse declares these the other way round (chunk_sz first).  The
+  mi 9 / K20 Pro bootloader does NOT follow it: it reads the third field as a
+  block count and the fourth as a byte count.  Feed it a spec-compliant file
+  and it reports "Error flashing partition : Volume Full", because it treats
+  e.g. 1048588 as 1048588 *blocks* = 4 GiB.  Verified on raphael with 4 MiB
+  probes (identical payload, only the two u32 swapped): spec order -> Volume
+  Full, this order -> OKAY.  Keep this order; mksimg clients on this device
+  are ABL, not simg2img.
 """
 import argparse
 import struct
