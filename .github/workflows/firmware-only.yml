@@ -103,7 +103,16 @@ jobs:
         run: |
           # NOTE: `git -C <dir> apply` resolves the patch path relative to <dir>.
           git -C unixnu apply ../patches/unixnu-guacamole.patch
-          git -C uefi apply ../patches/aloha-guacamole.patch
+          # aloha-guacamole.patch was generated against one revision of the tree.
+          # Newer/older releases move the context of two of its hunks, and git
+          # apply is all-or-nothing, so one stale hunk used to kill the build.
+          # Apply hunk-by-hunk and let the rejects fall through; the two hunks
+          # that actually drifted are pure additions and fix_aloha_tree.py
+          # re-does them without needing any context.
+          git -C uefi apply --reject --whitespace=nowarn ../patches/aloha-guacamole.patch \
+            || echo "NOTE: some aloha hunks were rejected (see *.rej) - re-applying below"
+          python3 scripts/fix_aloha_tree.py uefi
+          find uefi -name '*.rej' -exec sh -c 'echo "--- REJECTED: $1"; cat "$1"' _ {} \; || true
           # drivers/DarwinBoot is a SUBMODULE OF UniXNU, not of the Aloha tree
           git -C unixnu/drivers/DarwinBoot apply ../../../patches/darwinboot-guacamole.patch
           sed -i 's|^TARGET_DEVICE = .*|TARGET_DEVICE = "${{ inputs.device }}"|' board.toml
