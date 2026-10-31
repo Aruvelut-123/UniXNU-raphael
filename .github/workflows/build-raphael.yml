@@ -39,7 +39,6 @@ on:
     paths:
       - board.toml
       - patches/**
-      - scripts/**
 
 permissions:
   contents: read

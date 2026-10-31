@@ -11,6 +11,7 @@ The aloha-guacamole.patch creates ``Resources/Configs/guacamole.toml``; we
 mirror it to ``raphael.toml`` because board.toml sets ``[firmware] config``
 to "raphael".
 """
+import os
 import shutil
 import sys
 import tomllib
@@ -70,4 +71,7 @@ ctx = types.SimpleNamespace(
     args=types.SimpleNamespace(skip_preflight=False),
     uefi=UEFI,
 )
-firmware.build(ctx, None, UEFI, EDK2, "DEBUG")
+# DEBUG builds enable EDK II ASSERTs; a driver that trips one dead-loops
+# (black screen until the bootloader watchdog resets the phone).
+TARGET = os.environ.get("FW_TARGET", "DEBUG")
+firmware.build(ctx, None, UEFI, EDK2, TARGET)

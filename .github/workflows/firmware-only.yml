@@ -20,6 +20,12 @@ on:
         description: workflow run that holds the raphael-kernel artifact
         required: false
         default: "41182305214"
+      target:
+        description: EDK II build target
+        required: false
+        default: RELEASE
+        type: choice
+        options: [DEBUG, RELEASE]
 
 permissions:
   contents: read
@@ -131,13 +137,14 @@ jobs:
       - name: Build the UEFI firmware volume (SM8150 + xiaomi-raphael device)
         env:
           EXTRA_OPTFLAGS: "-Wno-error"
+          FW_TARGET: ${{ inputs.target }}
         run: python3 scripts/build-firmware.py
 
       - name: Upload the firmware volume (for local repacking experiments)
         uses: actions/upload-artifact@v4
         with:
-          name: SM8150_EFI.fd
-          path: uefi/Build/SurfaceDuo1Pkg/DEBUG_CLANGPDB/FV/SM8150_EFI.fd
+          name: SM8150_EFI-${{ inputs.variant }}-${{ inputs.target }}.fd
+          path: uefi/Build/SurfaceDuo1Pkg/${{ inputs.target }}_CLANGPDB/FV/SM8150_EFI.fd
           if-no-files-found: error
 
       - name: Build the FAT payload (kernel + raphael ADT)
@@ -157,6 +164,6 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: boot-raphael-${{ inputs.variant }}.img
+          name: boot-raphael-${{ inputs.variant }}-${{ inputs.target }}.img
           path: out/raphael/boot/boot-raphael.img
           if-no-files-found: error
