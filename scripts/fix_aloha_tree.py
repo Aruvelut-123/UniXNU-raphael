@@ -117,6 +117,32 @@ else:
     print("  skip     LibUfdt sysdeps not present")
 
 # --------------------------------------------------------------------------
+# 1d. MdePkg.dec - declare gFdtTableGuid if this mu_basecore predates it
+# --------------------------------------------------------------------------
+# UniXNULib.inf consumes gFdtTableGuid and only pulls in MdePkg.dec. Newer
+# mu_basecore revisions added that GUID to MdePkg.dec; the one Aloha 2412.74
+# pins does not have it, so every UniXNU module fails with
+# "Value of Guid [gFdtTableGuid] is not found under [Guids] section".
+GUID_LINE = "  gFdtTableGuid = { 0xb1b621d5, 0xf19c, 0x41a5, " \
+            "{ 0x83, 0x0b, 0xd9, 0x15, 0x2c, 0x69, 0xaa, 0xe0 } }"
+
+dec = root / "MU_BASECORE/MdePkg/MdePkg.dec"
+if dec.is_file():
+    text = dec.read_text(encoding="utf-8")
+    if "gFdtTableGuid" not in text:
+        m = re.search(r"^\[Guids[^\]]*\][ \t]*$", text, re.M)
+        if m is None:
+            print("  WARN     no [Guids] section in %s" % dec)
+        else:
+            dec.write_text(text[:m.end()] + "\n" + GUID_LINE + text[m.end():],
+                           encoding="utf-8")
+            print("  patched  MdePkg.dec (gFdtTableGuid added)")
+    else:
+        print("  ok       MdePkg.dec already declares gFdtTableGuid")
+else:
+    print("  skip     MdePkg.dec not present")
+
+# --------------------------------------------------------------------------
 # 2. SurfaceDuo1NoSb.dsc - add the FdtLib / UniXNULib library class mappings
 # --------------------------------------------------------------------------
 # --------------------------------------------------------------------------
