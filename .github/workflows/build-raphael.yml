@@ -128,7 +128,8 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Project-Aloha/mu_aloha_platforms
-          ref: 0b798128
+          # Full 40-char SHA: a short SHA is not fetchable by `git fetch <sha>`.
+          ref: 0b79812897177e9fdd1fb8cb02f05f5338322541
           path: uefi
           submodules: recursive
 
