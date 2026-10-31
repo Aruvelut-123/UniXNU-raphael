@@ -182,6 +182,13 @@ jobs:
         run: bash scripts/get-base-d22ap.sh
 
       - name: Build the UEFI firmware volume (SM8150 + xiaomi-raphael device)
+        env:
+          # Mu's BaseTools build with -Wall -Werror and its older sources trip
+          # gcc-13 warnings (e.g. EfiRom.c "assignment discards 'const'
+          # qualifier"). BaseTools' header.makefile appends $(EXTRA_OPTFLAGS)
+          # last to both CFLAGS and CXXFLAGS, so exporting it demotes those
+          # warnings back to warnings on modern Ubuntu runners.
+          EXTRA_OPTFLAGS: "-Wno-error"
         run: python3 scripts/build-firmware.py
 
       - name: Build the FAT payload (kernel + raphael ADT)
