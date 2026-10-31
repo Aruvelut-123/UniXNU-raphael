@@ -204,6 +204,20 @@ jobs:
             EXTRA_OPTFLAGS="-Wno-error -std=gnu17"
           ls -l uefi/MU_BASECORE/BaseTools/Source/C/bin/GenFw
 
+      - name: Seed the EDK II Conf directory with relaxed clang flags
+        run: |
+          # The UniXNU build driver seeds out/raphael/edk2-conf from
+          # BaseTools/Conf/*.template only when a file is MISSING, so writing
+          # tools_def.txt here is what the build ends up using.
+          CONF=out/raphael/edk2-conf
+          TPL=uefi/MU_BASECORE/BaseTools/Conf
+          mkdir -p "$CONF"
+          for n in target tools_def build_rule; do
+            [ -f "$CONF/$n.txt" ] || cp "$TPL/$n.template" "$CONF/$n.txt"
+          done
+          python3 scripts/relax_clang.py "$CONF/tools_def.txt"
+          grep -n "_CLANGPDB_AARCH64_CC_FLAGS" "$CONF/tools_def.txt" | head -3
+
       - name: Build the UEFI firmware volume (SM8150 + xiaomi-raphael device)
         env:
           EXTRA_OPTFLAGS: "-Wno-error"
