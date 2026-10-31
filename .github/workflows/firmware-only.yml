@@ -18,6 +18,13 @@ on:
         default: full
         type: choice
         options: [full, no_darwinboot, bootshim_upstream]
+      uefi_ref:
+        description: >
+          Project Aloha (mu_aloha_platforms) ref. The only image confirmed to
+          boot on this phone is the 2402.86 release; the newest tree (2026-10)
+          builds a firmware volume that resets the phone.
+        required: false
+        default: 0b79812897177e9fdd1fb8cb02f05f5338322541
       device:
         description: >
           Aloha TARGET_DEVICE. xiaomi-raphael is K20 Pro's own directory, but
@@ -73,7 +80,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Project-Aloha/mu_aloha_platforms
-          ref: 0b79812897177e9fdd1fb8cb02f05f5338322541
+          ref: ${{ inputs.uefi_ref }}
           path: uefi
           submodules: recursive
 
