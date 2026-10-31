@@ -101,6 +101,17 @@ jobs:
           git -C unixnu/drivers/DarwinBoot apply ../../../patches/darwinboot-guacamole.patch
           sed -i 's|^TARGET_DEVICE = .*|TARGET_DEVICE = "${{ inputs.device }}"|' board.toml
           grep -n 'TARGET_DEVICE' board.toml
+          # board.toml keeps FDT = raphael.dtb (the real K20 Pro hardware tree),
+          # so the platform looks for Device/<device>/DeviceTreeBlob/*/…-raphael.dtb
+          # even when TARGET_DEVICE is a sibling. Supply those names: the Android
+          # blob must stay raphael's (hardware), the Linux one is a placeholder.
+          if [ "${{ inputs.device }}" != "xiaomi-raphael" ]; then
+            SRC=uefi/Platforms/SurfaceDuo1Pkg/Device/xiaomi-raphael/DeviceTreeBlob
+            DST=uefi/Platforms/SurfaceDuo1Pkg/Device/${{ inputs.device }}/DeviceTreeBlob
+            cp "$SRC/Android/android-raphael.dtb" "$DST/Android/android-raphael.dtb"
+            cp "$SRC/Linux/linux-raphael.dtb" "$DST/Linux/linux-raphael.dtb"
+            ls -l "$DST/Android" "$DST/Linux"
+          fi
           if [ "${{ inputs.variant }}" = "bootshim_upstream" ]; then
             git -C uefi checkout -- BootShim/BootShim.S
             echo "variant: BootShim.S reverted to upstream (no DTB-pointer store)"
