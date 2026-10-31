@@ -23,6 +23,17 @@ name: build-raphael
 
 on:
   workflow_dispatch:
+    inputs:
+      variant:
+        description: >
+          "full" = the complete port. "bootshim_upstream" = identical, but
+          BootShim.S is reverted to upstream (it then no longer stores the
+          device-tree pointer at the guacamole address 0x9FF92000), which is
+          how to tell whether that store is what resets raphael.
+        required: false
+        default: full
+        type: choice
+        options: [full, bootshim_upstream]
   push:
     branches: [main]
 
@@ -184,6 +195,10 @@ jobs:
           git -C uefi apply ../patches/aloha-guacamole.patch
           # drivers/DarwinBoot is a SUBMODULE OF UniXNU, not of the Aloha tree
           git -C unixnu/drivers/DarwinBoot apply ../../../patches/darwinboot-guacamole.patch
+          if [ "${{ inputs.variant || 'full' }}" = "bootshim_upstream" ]; then
+            git -C uefi checkout -- BootShim/BootShim.S
+            echo "variant: BootShim.S reverted to upstream (no DTB-pointer store)"
+          fi
 
       - name: Fetch raphael DTB (real android-raphael.dtb shipped by Aloha)
         run: bash scripts/get-raphael-dtb.sh
