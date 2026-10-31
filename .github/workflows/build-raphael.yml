@@ -36,6 +36,10 @@ on:
         options: [full, bootshim_upstream]
   push:
     branches: [main]
+    paths:
+      - board.toml
+      - patches/**
+      - scripts/**
 
 permissions:
   contents: read

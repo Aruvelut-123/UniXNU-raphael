@@ -1,0 +1,162 @@
+name: firmware-only
+
+# Fast firmware iteration: reuse the SM8150 kernel that the build-raphael
+# workflow already produced instead of rebuilding XNU on the macOS runner
+# (~10 min) for every firmware experiment.
+
+on:
+  workflow_dispatch:
+    inputs:
+      variant:
+        description: >
+          full              = the complete port (all patches).
+          bootshim_upstream = revert BootShim.S (no DTB-pointer store).
+          alohatree_only    = no UniXNU patches at all (Aloha tree as-is).
+        required: false
+        default: full
+        type: choice
+        options: [full, bootshim_upstream, alohatree_only]
+      kernel_run_id:
+        description: workflow run that holds the raphael-kernel artifact
+        required: false
+        default: "41182305214"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Reuse the kernel built by an earlier run
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir -p inputs/raphael
+          curl -sL -H "Authorization: Bearer $GH_TOKEN" \
+            "https://api.github.com/repos/${{ github.repository }}/actions/runs/${{ inputs.kernel_run_id }}/artifacts" -o /tmp/arts.json
+          ID=$(python3 -c "import json;print([a['id'] for a in json.load(open('/tmp/arts.json'))['artifacts'] if a['name']=='raphael-kernel'][0])")
+          curl -sL -H "Authorization: Bearer $GH_TOKEN" \
+            "https://api.github.com/repos/${{ github.repository }}/actions/artifacts/$ID/zip" -o /tmp/k.zip
+          python3 -c "import zipfile;zipfile.ZipFile('/tmp/k.zip').extractall('inputs/raphael')"
+          ls -l inputs/raphael
+
+      - name: Checkout UniXNU driver (pinned)
+        uses: actions/checkout@v4
+        with:
+          repository: UniXNU/UniXNU
+          ref: b6ae99c17194e6a18fd819d3148e69fe405e91fc
+          path: unixnu
+          submodules: recursive
+
+      - name: Checkout Project Aloha UEFI (SM8150)
+        uses: actions/checkout@v4
+        with:
+          repository: Project-Aloha/mu_aloha_platforms
+          ref: 0b79812897177e9fdd1fb8cb02f05f5338322541
+          path: uefi
+          submodules: recursive
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Host tools (EDK2 + UniXNU driver)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build uuid-dev bison flex nasm iasl gcc g++ python3-dev clang lld llvm mtools unzip zip
+          for t in clang lld-link llvm-lib llvm-rc; do
+            if command -v "$t" >/dev/null 2>&1; then echo "have $t"; continue; fi
+            cand=$(ls /usr/lib/llvm-*/bin/"$t" /usr/bin/"$t"-* 2>/dev/null | sort -V | tail -1)
+            if [ -n "$cand" ]; then sudo ln -sf "$cand" "/usr/local/bin/$t"; echo "linked $t -> $cand"; else echo "MISSING $t"; fi
+          done
+          command -v clang lld-link llvm-lib llvm-rc
+
+      - name: Apply the SM8150 patches (vendored in this repo)
+        run: |
+          if [ "${{ inputs.variant }}" = "alohatree_only" ]; then
+            echo "variant: no UniXNU patches applied"
+            # firmware.build reads Resources/Configs/<config>.toml; upstream has
+            # none, so write the same FD layout the prebuilt raphael image uses.
+            mkdir -p uefi/Resources/Configs
+            cat > uefi/Resources/Configs/raphael.toml <<'TOML'
+          [boot_shim]
+          requires_kernel_header = true
+
+          [uefi_fd]
+          base = 0x9FC00000
+          size = 0x00300000
+
+          [boot_image_kernel]
+          kernel_compression = "gzip"
+          append_dtb = true
+
+          [boot_image]
+          header_version = 0
+          base = 0x0
+          kernel_offset = 0x8000
+          tags_offset = 0x100
+          pagesize = 4096
+          TOML
+            exit 0
+          fi
+          # NOTE: `git -C <dir> apply` resolves the patch path relative to <dir>.
+          git -C unixnu apply ../patches/unixnu-guacamole.patch
+          git -C uefi apply ../patches/aloha-guacamole.patch
+          # drivers/DarwinBoot is a SUBMODULE OF UniXNU, not of the Aloha tree
+          git -C unixnu/drivers/DarwinBoot apply ../../../patches/darwinboot-guacamole.patch
+          if [ "${{ inputs.variant }}" = "bootshim_upstream" ]; then
+            git -C uefi checkout -- BootShim/BootShim.S
+            echo "variant: BootShim.S reverted to upstream (no DTB-pointer store)"
+          fi
+
+      - name: Fetch raphael DTB (real android-raphael.dtb shipped by Aloha)
+        run: bash scripts/get-raphael-dtb.sh
+
+      - name: Fetch iPhone X (D22AP) base ADT (auto from public IPSW)
+        run: bash scripts/get-base-d22ap.sh
+
+      - name: Fetch the prebuilt BaseCrypto driver (Mu external dependency)
+        run: |
+          DEST=uefi/MU_BASECORE/CryptoPkg/Binaries/edk2-basecrypto-driver-bin_extdep
+          mkdir -p "$DEST"
+          curl -sL -o /tmp/cryptobin.zip \
+            https://github.com/microsoft/mu_crypto_release/releases/download/v1.1.3/Mu_CryptoBin_v1_1_3.zip
+          unzip -q -o /tmp/cryptobin.zip -d "$DEST"
+          ls -l "$DEST/Driver/Bin/CryptoDriver.inc.dsc"
+
+      - name: Build the UEFI firmware volume (SM8150 + xiaomi-raphael device)
+        env:
+          EXTRA_OPTFLAGS: "-Wno-error"
+        run: python3 scripts/build-firmware.py
+
+      - name: Upload the firmware volume (for local repacking experiments)
+        uses: actions/upload-artifact@v4
+        with:
+          name: SM8150_EFI.fd
+          path: uefi/Build/SurfaceDuo1Pkg/DEBUG_CLANGPDB/FV/SM8150_EFI.fd
+          if-no-files-found: error
+
+      - name: Build the FAT payload (kernel + raphael ADT)
+        run: python3 scripts/build-payload.py
+
+      - name: Pack the Android boot image
+        run: python3 scripts/build-bootimg.py
+
+      - name: Dump build logs on failure
+        if: failure()
+        run: |
+          ls -la out/raphael/logs/ 2>/dev/null || true
+          for f in out/raphael/logs/*.log; do
+            [ -f "$f" ] || continue
+            echo "----- $f -----"; tail -n 60 "$f"
+          done
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: boot-raphael-${{ inputs.variant }}.img
+          path: out/raphael/boot/boot-raphael.img
+          if-no-files-found: error
