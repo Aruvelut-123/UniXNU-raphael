@@ -1,9 +1,14 @@
 #!/usr/bin/env python3
-"""Convert a raw image to an Android sparse image.
+"""Convert a raw image to an Android sparse image, streaming.
 
 Why: `fastboot -S <n> flash` loads the WHOLE raw image into RAM to sparsify it,
 which dies with std::bad_alloc on an 8 GB image. Feeding fastboot an
 already-sparse file lets it stream chunk by chunk instead.
+
+The converter itself must also stream: an HFS+ iOS root is ~9 GB of data, and
+buffering it in RAM does not fit next to the build. Raw runs are capped at
+--max-chunk-blocks and written out immediately; the file header is patched at
+the end (total_chunks is only known then).
 
 Android sparse format (little endian):
 
@@ -26,6 +31,7 @@ Android sparse format (little endian):
 """
 import argparse
 import struct
+import sys
 from pathlib import Path
 
 MAGIC = 0xED26FF3A
@@ -48,68 +54,92 @@ def main():
     src = Path(args.raw)
     size = src.stat().st_size
     total_blks = (size + bs - 1) // bs
+    cap_bytes = args.max_chunk_blocks * bs
 
-    chunks = []
-    data_run = []        # list of block-sized bytes
+    n_raw = n_dc = 0
+    raw_bytes = 0
     zero_run = 0
+    buf = bytearray()
 
-    def flush_data():
-        nonlocal data_run
-        if not data_run:
+    f = open(src, "rb", buffering=0)
+    out = open(args.output, "wb")
+
+    def write_raw():
+        nonlocal buf, n_raw, raw_bytes
+        if not buf:
             return
-        blob = b"".join(data_run)
-        data_run = []
-        off = 0
-        while off < len(blob):
-            take = min(len(blob) - off, args.max_chunk_blocks * bs)
-            chunks.append((CHUNK_RAW, take // bs, blob[off:off + take]))
-            off += take
+        out.write(struct.pack("<HHII", CHUNK_RAW, 0, len(buf) // bs, CHUNK_HDR_SZ + len(buf)))
+        out.write(buf)
+        n_raw += 1
+        raw_bytes += len(buf)
+        buf = bytearray()
 
-    def flush_zeros():
-        nonlocal zero_run
-        if zero_run:
-            chunks.append((CHUNK_DONT_CARE, zero_run, None))
-            zero_run = 0
+    def write_dontcare():
+        nonlocal zero_run, n_dc
+        if not zero_run:
+            return
+        out.write(struct.pack("<HHII", CHUNK_DONT_CARE, 0, zero_run, CHUNK_HDR_SZ))
+        n_dc += 1
+        zero_run = 0
 
-    f = open(src, "rb")
-    for idx in range(total_blks):
-        blkdata = f.read(bs)
-        if len(blkdata) < bs:                 # final partial block
-            blkdata = blkdata + b"\0" * (bs - len(blkdata))
-        if blkdata.count(0) == bs:            # all-zero block
-            flush_data()
-            zero_run += 1
-        else:
-            flush_zeros()
-            data_run.append(blkdata)
-        if idx % 200000 == 0:
-            print("  scanning block %d / %d" % (idx, total_blks), flush=True)
-    f.close()
-    flush_data()
-    flush_zeros()
+    out.write(b"\0" * FILE_HDR_SZ)          # placeholder, patched below
 
-    covered = sum(n for _t, n, _p in chunks)
-    assert covered == total_blks, "chunk coverage %d != total blocks %d" % (covered, total_blks)
-
-    with open(args.output, "wb") as out:
-        out.write(struct.pack("<IHHHHIIII", MAGIC, 1, 0, FILE_HDR_SZ, CHUNK_HDR_SZ,
-                              bs, total_blks, len(chunks), 0))
-        for ctype, nblk, payload in chunks:
-            if ctype == CHUNK_RAW:
-                out.write(struct.pack("<HHII", ctype, 0, nblk, CHUNK_HDR_SZ + len(payload)))
-                out.write(payload)
+    # Read in 1 MiB slabs, then test block by block.
+    slab = 1 << 20
+    idx = 0
+    while True:
+        chunk = f.read(slab)
+        if not chunk:
+            break
+        pad = (-len(chunk)) % bs
+        if pad:
+            chunk = chunk + b"\0" * pad
+        for off in range(0, len(chunk), bs):
+            blk = chunk[off:off + bs]
+            if blk.count(0) == bs:
+                write_raw()
+                zero_run += 1
             else:
-                out.write(struct.pack("<HHII", ctype, 0, nblk, CHUNK_HDR_SZ))
+                write_dontcare()
+                buf += blk
+                if len(buf) >= cap_bytes:
+                    write_raw()
+            idx += 1
+        if idx % 262144 == 0:
+            done = min(idx * bs, size)
+            print("  %5.1f%%  %d / %d blocks" % (100.0 * done / size, idx, total_blks),
+                  flush=True)
+    f.close()
 
-    raw_bytes = sum(len(p) for t, _n, p in chunks if t == CHUNK_RAW)
-    out_size = Path(args.output).stat().st_size
+    # Tail: the loop counted padded blocks; drop any that extend past the image.
+    if idx > total_blks:
+        over = idx - total_blks
+        if over * bs <= len(buf):
+            buf = buf[:len(buf) - over * bs]
+        idx = total_blks
+    write_raw()
+    write_dontcare()
+
+    total_chunks = n_raw + n_dc
+    covered = raw_bytes // bs
+    # Recompute coverage exactly: raw blocks + dont-care blocks.
+    out.seek(0, 2)
+    out_size = out.tell()
+    # dont-care blocks are implied by total_blks - raw blocks.
+    dc_blocks = total_blks - covered
+    if dc_blocks < 0:
+        sys.exit("error: raw blocks exceed image blocks")
+
+    out.seek(0)
+    out.write(struct.pack("<IHHHHIIII", MAGIC, 1, 0, FILE_HDR_SZ, CHUNK_HDR_SZ,
+                          bs, total_blks, total_chunks, 0))
+    out.close()
+
     print("sparse image: %s" % args.output)
-    print("  original   : %d bytes (%.3f GB), %d blocks" % (size, size / 1024 ** 3, total_blks))
-    print("  chunks     : %d (%d raw, %d don't-care)"
-          % (len(chunks), sum(1 for t, _, _ in chunks if t == CHUNK_RAW),
-             sum(1 for t, _, _ in chunks if t == CHUNK_DONT_CARE)))
-    print("  data bytes : %d (%.3f GB)" % (raw_bytes, raw_bytes / 1024 ** 3))
-    print("  output size: %d bytes (%.3f GB)" % (out_size, out_size / 1024 ** 3))
+    print("  original   : %d bytes (%.3f GiB), %d blocks" % (size, size / 1024 ** 3, total_blks))
+    print("  chunks     : %d (%d raw, %d don't-care)" % (total_chunks, n_raw, n_dc))
+    print("  data bytes : %d (%.3f GiB)" % (raw_bytes, raw_bytes / 1024 ** 3))
+    print("  output size: %d bytes (%.3f GiB)" % (out_size, out_size / 1024 ** 3))
 
 
 if __name__ == "__main__":

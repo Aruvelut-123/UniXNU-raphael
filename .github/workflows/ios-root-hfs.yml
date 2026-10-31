@@ -51,33 +51,26 @@ jobs:
           haskell: true
           large-packages: true
           docker-images: true
-          swap-storage: true
-
-      - name: Report free space
-        run: df -h /
+          swap-storage: false
 
       - name: Install host tools
         run: |
+          set -e
+          df -h /
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            apfs-fuse hfsprogs rsync unzip curl python3
-          echo "--- versions ---"
-          apfs-fuse --help 2>&1 | head -3 || true
+            apfs-fuse hfsprogs rsync unzip curl python3 \
+            build-essential cmake pkg-config libfuse3-dev libbz2-dev zlib1g-dev \
+            libattr1-dev libicu-dev libssl-dev
+          echo "--- apfs-fuse ---"
+          which apfs-fuse && apfs-fuse --help 2>&1 | head -3 || true
+          echo "--- hfsprogs ---"
           mkfs.hfsplus -V 2>&1 | head -2 || true
-          fsck.hfsplus -h 2>&1 | head -3 || true
-          echo "--- fuse ---"
+          echo "--- modules ---"
+          sudo modprobe hfsplus || echo "hfsplus module missing"
+          sudo modprobe fuse || true
           ls -l /dev/fuse || echo "no /dev/fuse"
-          sudo modprobe fuse 2>&1 || true
-          ls -l /dev/fuse || echo "no /dev/fuse after modprobe"
-
-      - name: Fetch ios-sweet root tools
-        run: |
-          set -e
-          base=https://raw.githubusercontent.com/dipa-studio/ios-sweet/main/tools
-          curl -fsSL -o mkiosroot.sh "$base/mkiosroot.sh"
-          curl -fsSL -o sweet-root-tweaks.py "$base/sweet-root-tweaks.py"
-          chmod +x mkiosroot.sh sweet-root-tweaks.py
-          head -5 mkiosroot.sh
+          grep -c hfsplus /proc/filesystems || true
 
       - name: Download IPSW
         run: |
@@ -96,6 +89,58 @@ jobs:
           ls -l dmg
           df -h /
 
+      # Fail here (2 minutes in) rather than after the hour-long copy when the
+      # packaged apfs-fuse cannot read the IPSW's Apple Disk Images: retry with
+      # a build of upstream master, which tracks Apple's newer compression.
+      - name: Probe the disk images with apfs-fuse
+        run: |
+          set -e
+          probe() {
+            local dmg=$1 mnt=$2 rc=0
+            sudo rm -rf "$mnt"; mkdir -p "$mnt"
+            sudo apfs-fuse "$dmg" "$mnt" || rc=$?
+            echo "apfs-fuse exit=$rc on $dmg"
+            sudo ls -la "$mnt" || true
+            if [ "$rc" -ne 0 ]; then return 1; fi
+            sudo ls "$mnt/root" | head -8 || { sudo umount "$mnt" || true; return 1; }
+            sudo umount "$mnt" 2>/dev/null || sudo fusermount -u "$mnt" || true
+            sudo rm -rf "$mnt"
+            return 0
+          }
+
+          ok=1
+          probe "dmg/${{ inputs.os_dmg }}" /tmp/probe_os || ok=0
+          probe "dmg/${{ inputs.sysos_dmg }}" /tmp/probe_sys || ok=0
+          probe "dmg/${{ inputs.appos_dmg }}" /tmp/probe_app || ok=0
+
+          if [ "$ok" = 1 ]; then
+            echo "packaged apfs-fuse is able to read all three images"
+            exit 0
+          fi
+
+          echo "::warning::packaged apfs-fuse failed; building upstream master"
+          git clone --depth 1 --recursive https://github.com/sgan81/apfs-fuse /tmp/apfs-src
+          cmake -S /tmp/apfs-src -B /tmp/apfs-src/build -DCMAKE_BUILD_TYPE=Release
+          cmake --build /tmp/apfs-src/build -j"$(nproc)"
+          sudo install -m 0755 /tmp/apfs-src/build/apfs-fuse /usr/local/bin/apfs-fuse
+          hash -r
+          which apfs-fuse
+          apfs-fuse --help 2>&1 | head -3 || true
+
+          probe "dmg/${{ inputs.os_dmg }}" /tmp/probe_os
+          probe "dmg/${{ inputs.sysos_dmg }}" /tmp/probe_sys
+          probe "dmg/${{ inputs.appos_dmg }}" /tmp/probe_app
+          echo "upstream apfs-fuse works"
+
+      - name: Fetch ios-sweet root tools
+        run: |
+          set -e
+          base=https://raw.githubusercontent.com/dipa-studio/ios-sweet/main/tools
+          curl -fsSL -o mkiosroot.sh "$base/mkiosroot.sh"
+          curl -fsSL -o sweet-root-tweaks.py "$base/sweet-root-tweaks.py"
+          chmod +x mkiosroot.sh sweet-root-tweaks.py
+          head -5 mkiosroot.sh
+
       - name: Build HFS+ root
         run: |
           set -e
@@ -110,12 +155,26 @@ jobs:
       - name: Apply bring-up tweaks
         run: |
           set -e
+          # Apple's OS.dmg has /private/var as a bare mount point: recreate the
+          # data-volume skeleton the tweaks write into (mobile 501, as on iOS).
           sudo mkdir -p /mnt/iosroot
+          sudo modprobe hfsplus || true
           sudo mount -t hfsplus -o loop,force ios16-root.img /mnt/iosroot
+          for d in private/var/mobile private/var/mobile/Library \
+                   private/var/mobile/Library/Preferences private/var/root; do
+            sudo mkdir -p "/mnt/iosroot/$d"
+            sudo chown 501:501 "/mnt/iosroot/$d"
+            sudo chmod 0755 "/mnt/iosroot/$d"
+          done
+          echo "--- /private/var before tweaks ---"
+          sudo ls /mnt/iosroot/private/var || true
           sudo python3 sweet-root-tweaks.py /mnt/iosroot
+          echo "--- tweak results ---"
+          sudo ls /mnt/iosroot/private/var/mobile/Library/Preferences
+          sudo grep -c _PanicOnCrasX /mnt/iosroot/System/Library/xpc/launchd.plist || true
           sudo umount /mnt/iosroot
-          sudo fsck.hfsplus -f -y ios16-root.img || true
-          sudo fsck.hfsplus -f -n ios16-root.img || true
+          fsck.hfsplus -f -y ios16-root.img || true
+          fsck.hfsplus -f -n ios16-root.img || true
           rm -rf dmg
           df -h /
 
@@ -130,11 +189,14 @@ jobs:
           for p in sbin/launchd System/Library/CoreServices/SystemVersion.plist \
                    System/Library/Caches/com.apple.dyld \
                    private/preboot/Cryptexes/OS private/preboot/Cryptexes/App \
-                   private/var/keybags/systembag.kb; do
+                   private/var/keybags/systembag.kb \
+                   private/var/mobile/Library/Preferences/com.apple.purplebuddy.plist; do
             if sudo test -e "/tmp/chk/$p"; then echo "OK   $p"; else echo "MISS $p"; fi
           done
           echo "--- dyld cache files ---"
           sudo ls /tmp/chk/System/Library/Caches/com.apple.dyld | head -5
+          echo "--- usage ---"
+          df -h /tmp/chk
           sudo umount /tmp/chk
 
       - name: Convert to Android sparse
@@ -168,7 +230,14 @@ jobs:
             echo ""
             echo "Sparse image sha256: see ios16-root.simg.sha256"
           } > notes.md
-          gh release create "$tag" root-part.* ios16-root.simg.sha256 root-parts.sha256 \
-            --title "$tag" --notes-file notes.md --repo "$GITHUB_REPOSITORY"
           echo "RELEASE_TAG=$tag" >> "$GITHUB_ENV"
+          gh release create "$tag" --title "$tag" --notes-file notes.md --repo "$GITHUB_REPOSITORY"
+          # One asset at a time: a single failure then leaves the finished parts
+          # published instead of losing the whole build.
+          for f in root-part.* ios16-root.simg.sha256 root-parts.sha256; do
+            echo "uploading $f"
+            gh release upload "$tag" "$f" --repo "$GITHUB_REPOSITORY"
+          done
           echo "published $tag"
+          gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json assets \
+            --jq '.assets[] | "\(.name) \(.size)"'
