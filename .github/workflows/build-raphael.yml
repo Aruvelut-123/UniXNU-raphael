@@ -1,0 +1,162 @@
+name: build-raphael
+
+# Turnkey builder for the Redmi K20 Pro / Mi 9T Pro (raphael, SM8150).
+#
+# raphael is the SAME SM8150 silicon as OnePlus 7 Pro (guacamole), which has
+# already reached the iOS 16.7.16 userland. This workflow reuses guacamole's
+# proven kernel build (identical silicon -> identical kernel) and applies
+# guacamole's SM8150 UEFI/UniXNU patches, then adds the raphael device tree
+# and the raphael Apple Device Tree (ADT) profile (1080x2340 panel).
+#
+# Three one-time inputs the runner cannot synthesize (same as guacamole):
+#   1. inputs/raphael/kernel.macho  -> built by the `kernel` job on macos-14
+#   2. inputs/raphael/base-d22ap.adt -> iPhone X device tree (Apple artifact);
+#                                     fetch with scripts/get-base-d22ap.sh
+#   3. inputs/uefi-prebuilt/raphael.dtb -> SM8150 device tree; fetch with
+#                                     scripts/get-raphael-dtb.sh (reuses the
+#                                     guacamole SM8150 DTB for first bring-up)
+#
+# Run order: enable Actions -> run `kernel` then `build` (or use this workflow
+# which chains them via the uploaded kernel artifact).
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  kernel:
+    # XNU 8796 needs Xcode 15 (iig ABI) -> macos-14, like guacamole.
+    runs-on: macos-14
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Checkout UniXNU driver (pinned to guacamole's proven ref)
+        uses: actions/checkout@v4
+        with:
+          repository: UniXNU/UniXNU
+          ref: b6ae99c17194e6a18fd819d3148e69fe405e91fc
+          path: unixnu
+          submodules: recursive
+
+      - name: Checkout guacamole reference (provides the SM8150 defconfig + kernel build)
+        uses: actions/checkout@v4
+        with:
+          repository: wochgn/UniXNU-guacamole
+          path: guacamole-ref
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install host tools
+        run: |
+          brew install cmake ninja unifdef llvm
+          echo "$(brew --prefix llvm)/bin" >> "$GITHUB_PATH"
+
+      - name: Select the SM8150 device config
+        run: ./unixnu/unixnu defconfig guacamole_8796_defconfig -D guacamole-ref
+
+      - name: Fetch kernel sources
+        run: ./unixnu/unixnu fetch xnu libplatform libdispatch AvailabilityVersions libpthread corecrypto-2023 -D guacamole-ref
+
+      - name: Build kernel (SM8150, identical to guacamole)
+        run: ./unixnu/unixnu build kernel -D guacamole-ref || true
+
+      - name: Locate and stage the kernel Mach-O
+        run: |
+          mkdir -p inputs/raphael
+          K=$(find guacamole-ref/unixnu/out -type f -name 'kernel.*' 2>/dev/null | head -1)
+          if [ -z "$K" ]; then
+            echo "kernel binary not found; listing out tree:" >&2
+            find guacamole-ref/unixnu/out -maxdepth 4 -type d 2>/dev/null | head -50 >&2
+            exit 1
+          fi
+          cp "$K" inputs/raphael/kernel.macho
+          ls -la inputs/raphael/kernel.macho
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: raphael-kernel
+          path: inputs/raphael/kernel.macho
+          if-no-files-found: error
+
+  build:
+    needs: kernel
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download the SM8150 kernel built by the kernel job
+        uses: actions/download-artifact@v4
+        with:
+          name: raphael-kernel
+          path: inputs/raphael
+
+      - name: Checkout UniXNU driver (pinned)
+        uses: actions/checkout@v4
+        with:
+          repository: UniXNU/UniXNU
+          ref: b6ae99c17194e6a18fd819d3148e69fe405e91fc
+          path: unixnu
+          submodules: recursive
+
+      - name: Checkout Project Aloha UEFI (SM8150)
+        uses: actions/checkout@v4
+        with:
+          repository: Project-Aloha/mu_aloha_platforms
+          ref: 0b798128
+          path: uefi
+          submodules: recursive
+
+      - name: Checkout guacamole reference (provides the complete SM8150 patch set)
+        uses: actions/checkout@v4
+        with:
+          repository: wochgn/UniXNU-guacamole
+          path: guacamole-ref
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Host tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build uuid-dev
+          pip install -r unixnu/requirements.txt || true
+
+      - name: Apply guacamole SM8150 patches to the UniXNU/UEFI trees
+        run: |
+          cp -r guacamole-ref/patches/* patches/ 2>/dev/null || true
+          git -C unixnu apply patches/unixnu-guacamole.patch
+          git -C uefi apply patches/aloha-guacamole.patch
+          git -C uefi/drivers/DarwinBoot apply ../../../patches/darwinboot-guacamole.patch
+
+      - name: Fetch raphael DTB (reuses SM8150 DTB; same SoC as guacamole)
+        run: bash scripts/get-raphael-dtb.sh
+
+      - name: Fetch iPhone X (D22AP) base ADT
+        run: bash scripts/get-base-d22ap.sh
+
+      - name: Build UEFI firmware volume (SM8150 + xiaomi-raphael device)
+        run: python3 scripts/build-firmware.py
+
+      - name: Build FAT payload (kernel + raphael ADT)
+        run: python3 scripts/build-payload.py
+
+      - name: Pack Android boot image
+        run: python3 scripts/build-bootimg.py
+
+      - name: Report
+        run: cat out/raphael/boot/boot.json
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: boot-raphael.img
+          path: out/raphael/boot/boot-raphael.img
+          if-no-files-found: error
