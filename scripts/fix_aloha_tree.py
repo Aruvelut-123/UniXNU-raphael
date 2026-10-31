@@ -212,6 +212,29 @@ else:
     print("  skip     MdePkg/Include/Library/FdtLib.h not present")
 
 # --------------------------------------------------------------------------
+# 1g. MdePkg/Include/AsmMacroLib.h - the ARM64 assembly macro header
+# --------------------------------------------------------------------------
+# DarwinBoot's Entry.S does #include <AsmMacroLib.h>. In this mu_basecore the
+# file lives under MdePkg/Include/AArch64/ (or is missing outright), so the
+# bare include cannot resolve and the assembly step dies. Drop a copy at the
+# Include root, where it is on every module's include path.
+asm_macro = fixes / "AsmMacroLib.h"
+inc = root / "MU_BASECORE/MdePkg/Include"
+if asm_macro.is_file() and inc.is_dir():
+    if (inc / "AsmMacroLib.h").is_file():
+        print("  ok       MdePkg/Include/AsmMacroLib.h already present")
+    else:
+        (inc / "AsmMacroLib.h").write_text(
+            asm_macro.read_text(encoding="utf-8"), encoding="utf-8")
+        (inc / "AArch64").mkdir(exist_ok=True)
+        if not (inc / "AArch64/AsmMacroLib.h").is_file():
+            (inc / "AArch64/AsmMacroLib.h").write_text(
+                asm_macro.read_text(encoding="utf-8"), encoding="utf-8")
+        print("  patched  MdePkg/Include/AsmMacroLib.h added")
+else:
+    print("  skip     AsmMacroLib header not applicable")
+
+# --------------------------------------------------------------------------
 # 2. SurfaceDuo1NoSb.dsc - add the FdtLib / UniXNULib library class mappings
 # --------------------------------------------------------------------------
 # --------------------------------------------------------------------------
