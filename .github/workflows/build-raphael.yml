@@ -163,7 +163,7 @@ jobs:
       - name: Host tools (EDK2 + UniXNU driver)
         run: |
           sudo apt-get update
-          sudo apt-get install -y cmake ninja-build uuid-dev bison flex nasm iasl gcc g++ python3-dev clang lld llvm mtools
+          sudo apt-get install -y cmake ninja-build uuid-dev bison flex nasm iasl gcc g++ python3-dev clang lld llvm mtools unzip zip
           # UniXNU builds the firmware with EDK II's CLANGPDB tool chain and
           # looks for clang / lld-link / llvm-lib / llvm-rc on PATH. Ubuntu
           # ships them version-suffixed under /usr/lib/llvm-*/bin, so link the
@@ -190,6 +190,20 @@ jobs:
 
       - name: Fetch iPhone X (D22AP) base ADT (auto from public IPSW)
         run: bash scripts/get-base-d22ap.sh
+
+      - name: Fetch the prebuilt BaseCrypto driver (Mu external dependency)
+        run: |
+          # Platforms/AndromedaPkg/Andromeda.dsc.inc unconditionally includes
+          # $(SHARED_CRYPTO_PATH)/Driver/Bin/CryptoDriver.inc.dsc. Upstream gets it
+          # from CryptoPkg/Binaries/BaseCryptoDriver_ext_dep.json (a web ext_dep);
+          # the edk2 stuart tooling is not used here, so fetch it by hand into the
+          # folder name the ext_dep would have created (<name>_extdep).
+          DEST=uefi/MU_BASECORE/CryptoPkg/Binaries/edk2-basecrypto-driver-bin_extdep
+          mkdir -p "$DEST"
+          curl -sL -o /tmp/cryptobin.zip \
+            https://github.com/microsoft/mu_crypto_release/releases/download/v1.1.3/Mu_CryptoBin_v1_1_3.zip
+          unzip -q -o /tmp/cryptobin.zip -d "$DEST"
+          ls -l "$DEST/Driver/Bin/CryptoDriver.inc.dsc"
 
       - name: Build the UEFI firmware volume (SM8150 + xiaomi-raphael device)
         env:
