@@ -54,7 +54,8 @@ on `ubuntu-24.04`:
      `SetupVersion` 11),
    - `VirtualAudio.plugin` disabled and `StartRecorderServer=false`
      (mediaserverd crash loop),
-5. `fsck.hfsplus`, convert to Android sparse, publish in 1.9 GB parts.
+5. seed the activation state (`scripts/seed_activation.py`),
+6. `fsck.hfsplus`, convert to Android sparse, publish in 1.9 GB parts.
 
 The published release is `iosroot-16.7.16-<timestamp>` with the parts
 `root-part.00` … `root-part.06`.
@@ -72,6 +73,9 @@ python3 scripts/assemble_hfsroot.py hfsroot/ -o ios16-root.simg
 # 3. split it: the Google fastboot.exe for Windows is 32-bit and mmaps the
 #    whole file, so anything above ~2 GB dies with std::bad_alloc
 python3 scripts/split_for_abl.py ios16-root.simg -o pieces/
+
+# 3b. prove the pieces reproduce the image byte for byte before flashing
+python3 scripts/verify_pieces.py ios16-root.simg pieces/
 
 # 4. phone into the bootloader, then flash in DESCENDING order
 for p in $(ls pieces/p*.simg | sort -r); do fastboot flash userdata "$p"; done
@@ -121,8 +125,9 @@ From `board.toml` `[payload] kernel_args`:
 
 ## Still open
 
-- **Activation**: the upstream tweak script could not seed
-  `data_ark.plist` (the image has no mobileactivationd system container), so
-  the device is not "Activated" and cannot sign in to an Apple ID.
 - **Touch**: not wired up yet on raphael.
 - **SEP**: absent, so no secure enclave operations.
+- **Apple ID**: the root is seeded as Activated
+  (`scripts/seed_activation.py` creates the mobileactivationd container the
+  upstream bring-up image used and writes `data_ark.plist` into it), but
+  without a SEP the device still cannot sign in to an Apple ID.
