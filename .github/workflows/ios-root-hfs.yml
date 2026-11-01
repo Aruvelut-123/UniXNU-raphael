@@ -180,9 +180,16 @@ jobs:
           echo "--- /private/var before tweaks ---"
           sudo ls /mnt/iosroot/private/var || true
           sudo python3 sweet-root-tweaks.py /mnt/iosroot
+          # The upstream tweaks skip the activation seed: Apple's OS.dmg ships
+          # no mobileactivationd system container, so there is nothing to find.
+          # Seed the container the upstream bring-up image used by hand, so
+          # mobileactivationd starts out Activated instead of blocking on the
+          # activation check.
+          sudo python3 scripts/seed_activation.py /mnt/iosroot
           echo "--- tweak results ---"
           sudo ls /mnt/iosroot/private/var/mobile/Library/Preferences
           sudo grep -c _PanicOnCrasX /mnt/iosroot/System/Library/xpc/launchd.plist || true
+          sudo cat "/mnt/iosroot/private/var/containers/Data/System/D90C94C4-F94E-4FCF-8A28-A93BE3846D8E/Library/internal/data_ark.plist"
           sudo umount /mnt/iosroot
           fsck.hfsplus -f -y ios16-root.img || true
           fsck.hfsplus -f -n ios16-root.img || true
