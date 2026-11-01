@@ -174,6 +174,7 @@ jobs:
           SRC=dxb/xnu/bsd/dev/sweet_usb.c
           echo "=== rings ==="
           grep -n 'panel_sb\[\|panel_fatal\[\|panel_usb\[' "$SRC" || echo "(rings missing: 0104 skipped)"
+          grep -n 'SWEET CS' "$SRC" || echo "(panel does not keep the SWEET CS lines: 0106 skipped)"
           echo "=== kernel strings ==="
           strings -a raphael/inputs/raphael/kernel.macho | grep -F -- '-- springboard --' || true
           strings -a raphael/inputs/raphael/kernel.macho | grep -F -- '-- assert/dyld --' || true
@@ -182,6 +183,23 @@ jobs:
             echo "springboard panel: APPLIED"
           else
             echo "::error::0104 was skipped; the panel would not isolate SpringBoard"
+            exit 1
+          fi
+
+      - name: Verify the page-rejection diagnostics landed
+        run: |
+          echo "=== source state ==="
+          grep -n 'SWEET CS:' dxb/xnu/bsd/kern/kern_cs.c || echo "(kern_cs.c: 0105 skipped)"
+          grep -n 'SWEET CS:' dxb/xnu/osfmk/vm/vm_fault.c || echo "(vm_fault.c: 0105 skipped)"
+          grep -n 'sweetcs_allow' dxb/xnu/bsd/kern/kern_cs.c || echo "(no override boot-arg)"
+          echo "=== kernel strings ==="
+          strings -a raphael/inputs/raphael/kernel.macho | grep -F 'SWEET CS: %s' || true
+          if strings -a raphael/inputs/raphael/kernel.macho | grep -qF 'SWEET CS: %s off=0x%llx' \
+             && strings -a raphael/inputs/raphael/kernel.macho | grep -qF 'SWEET CS: %s flags=0x%x' \
+             && grep -q 'sweetcs_allow' dxb/xnu/bsd/kern/kern_cs.c; then
+            echo "page-rejection diagnostics: APPLIED"
+          else
+            echo "::error::0105 was skipped; a rejected page would stay unexplained"
             exit 1
           fi
 
