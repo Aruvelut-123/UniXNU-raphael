@@ -118,10 +118,33 @@ From `board.toml` `[payload] kernel_args`:
 | --- | --- |
 | `rd=ufsroot0` | mount the root from `ufsroot0` (the `userdata` GPT partition) |
 | `ufsroot=userdata` | optional: which GPT partition to use (default `userdata`) |
-| `sweetfb_noconsole=1` | mute the console once the GUI presents |
+| `sweetfb_noconsole=1` | mute the console once the GUI presents (see the note below) |
 | `sweetfb_hz=30` | framebuffer present rate |
 | `sweetusb=2` | expose the kernel console over USB CDC-ACM |
 | `ignition_level=1` | look for the shared cache in the cryptexes |
+
+## Note on `sweetfb_noconsole`
+
+`sweetfb_noconsole=1` makes the kernel mute the console on the **first** swap
+(patch 0067). That is what upstream uses, and it hides the kernel text once
+the GUI takes the screen.
+
+It also means that if the userland never gets far enough to present a frame
+while the console was already muted, the screen stays blank with no
+diagnostics on it -- and this port cannot pull the persistent log, because
+that needs a recovery, which is out of scope here.
+
+The kernel's panel thread (patch 0103 onwards, enabled by default) solves this
+better: it keeps painting a digest every 20 s, and as soon as it sees a
+**real** framebuffer present it draws one last digest and then stops painting
+so the GUI shows through. So for bring-up, boot **without** `sweetfb_noconsole`:
+
+```
+python3 scripts/mkboot.py TEST_X.img TEST_Y.img --del sweetfb_noconsole
+```
+
+`TEST_Y.img` in this repository is exactly that: the same kernel, the same
+ADT and the same UEFI as `TEST_X.img`, with that one boot argument removed.
 
 ## Still open
 
