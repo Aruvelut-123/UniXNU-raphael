@@ -1,6 +1,6 @@
 --- a/bsd/dev/sweet_usb.c
 +++ b/bsd/dev/sweet_usb.c
-@@ -854,99 +854,149 @@
+@@ -854,99 +854,150 @@
  extern int sweet_console_muted;         /* osfmk/console/serial_console.c */
  
  /*
@@ -90,7 +90,8 @@
 +			panel_crashes++;
 +		}
 +		panel_keep(panel_narr, &panel_narr_at, PANEL_NARR, line);
-+	} else if (panel_has(line, "SWEET AMFI")) {
++	} else if (panel_has(line, "SWEET AMFI") || panel_has(line, "SWEET USB: setup") ||
++	    panel_has(line, "SWEET USB: configured")) {
 +		panel_keep(panel_amfi, &panel_amfi_at, PANEL_AMFI, line);
 +	}
 +}
@@ -164,7 +165,7 @@
 +			printf("%s\n", l);
 +		}
 +	}
-+	printf("-- amfi --\n");
++	printf("-- amfi/usb --\n");
 +	for (unsigned i = 0; i < PANEL_AMFI; i++) {
 +		const char *l = panel_amfi[(panel_amfi_at + i) % PANEL_AMFI];
 +		if (l[0] != 0) {
@@ -217,7 +218,7 @@
  }
  
  static void
-@@ -977,8 +1027,10 @@
+@@ -977,8 +1028,10 @@
  {
  	thread_t thread;
  
