@@ -46,6 +46,14 @@ fastboot boot boot-raphael.img
 
 `fastboot boot` loads the image into RAM only — it does **not** flash or modify any partition, so it is safe and reversible (a normal reboot returns you to Android). Watch the screen for the UniXNU menu, then the iOS desktop.
 
+> **The iOS root itself has to be flashed once.** The kernel mounts the root
+> from the phone's `userdata` partition and that partition must hold an
+> **HFS+ volume** (not the `SHNGROOT`/APFS image that `unixnu build userdata`
+> produces — this kernel has no `SHNGROOT` support at all). See
+> **[FLASH-ROOT.md](FLASH-ROOT.md)** for the download, verify and flash steps.
+> The `ios-root-hfs` workflow builds the image with the upstream bring-up
+> tweaks applied and publishes it as a release.
+
 If your device has **6 GB** of RAM (instead of 8 GB), open `board.toml` and lower `payload.adt.owned_memory_size` (e.g. `0x80000000`) before building.
 
 ---
