@@ -64,20 +64,27 @@ The published release is `iosroot-16.7.16-<timestamp>` with the parts
 
 ```bash
 # 1. download the parts
-gh release download iosroot-16.7.16-20261031-141135 \
+gh release download iosroot-16.7.16-20261101-093843 \
     -R JohnLeeeeeee678/UniXNU-raphael -p 'root-part.*' -D hfsroot/
 
 # 2. concatenate and verify
 python3 scripts/assemble_hfsroot.py hfsroot/ -o ios16-root.simg
 
-# 3. split it: the Google fastboot.exe for Windows is 32-bit and mmaps the
+# 3. make it DENSE -- see "Why the image has to be dense" below
+python3 scripts/make_dense.py ios16-root.simg \
+    -o ios16-root-dense.simg --max-chunk-mib 128 --verify
+
+# 4. split it: the Google fastboot.exe for Windows is 32-bit and mmaps the
 #    whole file, so anything above ~2 GB dies with std::bad_alloc
-python3 scripts/split_for_abl.py ios16-root.simg -o pieces/
+python3 scripts/split_for_abl.py ios16-root-dense.simg -o pieces/ --limit-gib 1.30
 
-# 3b. prove the pieces reproduce the image byte for byte before flashing
-python3 scripts/verify_pieces.py ios16-root.simg pieces/
+# 4b. prove the pieces reproduce the image byte for byte before flashing
+python3 scripts/verify_pieces.py ios16-root-dense.simg pieces/
 
-# 4. phone into the bootloader, then flash in DESCENDING order
+# 4c. and simulate what the phone would end up holding
+python3 scripts/simulate_flash.py ios16-root-dense.simg pieces/
+
+# 5. phone into the bootloader, then flash in DESCENDING order
 for p in $(ls pieces/p*.simg | sort -r); do fastboot flash userdata "$p"; done
 ```
 
@@ -89,6 +96,38 @@ that have not been written yet.
 
 **This overwrites `userdata`.** Everything on that partition is lost.
 
+## Why the image has to be dense
+
+The ABL treats a `DONT_CARE` chunk as a **seek**, not as a write of zeros.
+That is what makes the split flash work -- each piece declares its absolute
+start block with a leading `DONT_CARE` chunk -- but it has a consequence: the
+blocks a piece skips keep whatever the partition held before.
+
+The partition is not empty. It still holds the previous root build, and the
+old image differed from the new one in 310 blocks. Every one of those 310 is
+an **allocated** block of the new HFS+ volume, and 47 of them sit inside the
+catalog B-tree (extents `(183682, 16384)`, `(219273, 8192)`, `(1137808, 8192)`,
+`(1756736, 8192)`). Flashing the sparse image would therefore have left the
+phone with a volume that is *not* the volume the build server verified.
+
+`scripts/make_dense.py` removes the question: every block is stored, so the
+partition ends up holding exactly the bytes of the image, whatever was there
+before. It costs 4.7 GiB of extra transfer and nothing else. The output is
+still a normal sparse image in the layout this bootloader expects, so
+`split_for_abl.py`, `verify_pieces.py` and `simulate_flash.py` take it
+unchanged.
+
+The tell is in `simulate_flash.py`'s output: with the sparse image it reports
+`source raw blocks: 2966058, device written blocks: 4194304` (1.2 M blocks
+would keep their old bytes); with the dense image both numbers are 4194304.
+
+One trap worth knowing: the byte count in a sparse chunk header is a 32-bit
+field, so one chunk can cover at most 1048575 blocks (4 GiB). `split_for_abl.py`
+can only cut *between* chunks, so a single oversized chunk produces one
+oversized piece -- and a piece above ~2 GiB is exactly what the 32-bit client
+cannot send. `make_dense.py --max-chunk-mib` caps the chunk size for that
+reason (128 MiB by default).
+
 ## Boot
 
 ```bash
@@ -98,17 +137,43 @@ fastboot boot boot-raphael.img
 Watch the screen. The kernel panel prints a digest every 20 s:
 
 ```
-=== SWEET t=60s exec=42 crash=3 sb=1/1 fb=9 sw=16 dn=0 m=1 ===
+=== SWEET t=60s exec=42 crash=3 sb=1/1 fb=9 sw=16 dn=0 m=1 gui=1 ===
 ```
 
 - `sw=` — number of framebuffer presents that actually reached the panel. If
-  it is non-zero the GUI owns the screen and the panel stops painting
-  (`m=1` means the console is muted).
+  it is non-zero the GUI owns the screen.
+- `gui=` — 1 once the panel has yielded to the GUI. This is the honest
+  counterpart of `m=`: patch 0109 read `sweet_console_muted` *after* clearing
+  it, so `m=` was always 0 and could never say anything. Patch 0111 reads the
+  state before overriding it.
 - `sb=x/y` — SpringBoard execs / SpringBoard crashes.
 - `crash=` — crashing processes, listed underneath.
 
 If `sw=` stays 0 the userland never presented a frame; the panel keeps
 painting the digest every 20 s so the numbers stay readable.
+
+Patch 0111 also keeps the digest coming **after** the panel has yielded to
+the GUI. Before it, the panel went permanently silent once a real frame
+arrived, so a later crash left a frozen picture and no diagnostics at all --
+exactly the "the screen stopped moving" symptom.
+
+## Reading the log instead of photographing the screen
+
+The kernel exposes its console over USB as a CDC-ACM serial port
+(`USB\Class_02&SubClass_02&Prot_01`, VID `0x1209`, PID `0x0001`). Windows
+matches it with its own `usbser.inf`, so **no third-party driver is needed**:
+
+```bash
+python3 scripts/console_log.py - ios-console.log
+```
+
+The script finds the COM port by itself, reconnects if the phone reboots, and
+writes everything the kernel prints. `scripts/bringup.sh` runs it right after
+`fastboot boot`, so the bring-up is one command:
+
+```bash
+bash scripts/bringup.sh          # verify -> flash -> boot -> read the log
+```
 
 ## Kernel boot arguments
 
@@ -121,7 +186,14 @@ From `board.toml` `[payload] kernel_args`:
 | `sweetfb_noconsole=1` | mute the console once the GUI presents (see the note below) |
 | `sweetfb_hz=30` | framebuffer present rate |
 | `sweetusb=2` | expose the kernel console over USB CDC-ACM |
+| `sweetusblog=1` | stream the console to the USB serial port (patch 0101) |
 | `ignition_level=1` | look for the shared cache in the cryptexes |
+
+The upstream configuration that reached the iOS 16.7 home screen was
+`cpus=6, sweetfb_noconsole=1, sweetfb_hz=30`. This port's `board.toml` keeps
+`sweetfb_noconsole=1` and `sweetfb_hz=30` but uses `cpus=8`; the images
+booted during bring-up use the local `cpus=6` variant, which is the one
+upstream verified.
 
 ## Note on `sweetfb_noconsole`
 

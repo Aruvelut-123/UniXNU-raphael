@@ -4,13 +4,14 @@
 #   flash-root.sh [--parts-dir DIR] [--work-dir DIR] [--dry-run]
 #
 # Steps: assemble the published parts -> verify sha256 + HFS+ header ->
-# split into ABL-safe pieces -> flash them to userdata in DESCENDING order.
+# make the image dense -> split into ABL-safe pieces -> flash them to userdata
+# in DESCENDING order.
 #
 # The SM8150 ABL has two quirks this script works around:
 #   * its sparse chunk header is "u16 type, u16 res, u32 blocks, u32 bytes"
 #     (the opposite of the AOSP/libsparse order), and
 #   * DONT_CARE is a seek, not a write of zeros.
-# See scripts/split_for_abl.py.
+# See scripts/split_for_abl.py and scripts/make_dense.py.
 set -euo pipefail
 
 REPO="JohnLeeeeeee678/UniXNU-raphael"
@@ -57,18 +58,31 @@ echo "== assembling =="
 python3 "$SCRIPTS/assemble_hfsroot.py" "$PARTS_DIR" -o "$WORK_DIR/ios16-root.simg" \
   --expect-sha "$PARTS_DIR/ios16-root.simg.sha256"
 
+echo "== making the image dense =="
+# The bootloader treats DONT_CARE as a seek, so the blocks the sparse image
+# skips would keep whatever the partition held before -- and the partition
+# still holds the previous root build.  Making the image dense removes the
+# question: every block is written, so the phone ends up with exactly the
+# bytes the build server verified.
+python3 "$SCRIPTS/make_dense.py" "$WORK_DIR/ios16-root.simg" \
+  -o "$WORK_DIR/ios16-root-dense.simg" --max-chunk-mib 128 --verify
+
 echo "== splitting =="
-python3 "$SCRIPTS/split_for_abl.py" "$WORK_DIR/ios16-root.simg" -o "$WORK_DIR/pieces"
+python3 "$SCRIPTS/split_for_abl.py" "$WORK_DIR/ios16-root-dense.simg" \
+  -o "$WORK_DIR/dense-pieces" --limit-gib 1.30
 
 echo "== verifying the pieces =="
-python3 "$SCRIPTS/verify_pieces.py" "$WORK_DIR/ios16-root.simg" "$WORK_DIR/pieces"
+python3 "$SCRIPTS/verify_pieces.py" "$WORK_DIR/ios16-root-dense.simg" "$WORK_DIR/dense-pieces"
+
+echo "== simulating the flash =="
+python3 "$SCRIPTS/simulate_flash.py" "$WORK_DIR/ios16-root-dense.simg" "$WORK_DIR/dense-pieces"
 
 echo "== verifying the volume =="
 python3 "$SCRIPTS/verify_root.py" "$WORK_DIR/ios16-root.simg"
 
 if [ "$DRY" = "1" ]; then
   echo "== dry run: not flashing =="
-  cat "$WORK_DIR/pieces/ORDER.txt"
+  cat "$WORK_DIR/dense-pieces/ORDER.txt"
   exit 0
 fi
 
@@ -76,7 +90,7 @@ echo "== waiting for the phone in fastboot mode =="
 "$FASTBOOT" devices
 
 echo "== flashing userdata (descending order) =="
-for p in $(ls "$WORK_DIR"/pieces/p*.simg | sort -r); do
+for p in $(ls "$WORK_DIR"/dense-pieces/p*.simg | sort -r); do
   echo "-- $p"
   "$FASTBOOT" flash userdata "$p"
 done
