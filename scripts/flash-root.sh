@@ -14,7 +14,7 @@
 set -euo pipefail
 
 REPO="JohnLeeeeeee678/UniXNU-raphael"
-TAG="iosroot-16.7.16-20261031-141135"
+TAG="${TAG:-iosroot-16.7.16-20261031-141135}"
 
 PARTS_DIR=""
 WORK_DIR="raphael-root"
@@ -59,6 +59,9 @@ python3 "$SCRIPTS/assemble_hfsroot.py" "$PARTS_DIR" -o "$WORK_DIR/ios16-root.sim
 
 echo "== splitting =="
 python3 "$SCRIPTS/split_for_abl.py" "$WORK_DIR/ios16-root.simg" -o "$WORK_DIR/pieces"
+
+echo "== verifying the pieces =="
+python3 "$SCRIPTS/verify_pieces.py" "$WORK_DIR/ios16-root.simg" "$WORK_DIR/pieces"
 
 if [ "$DRY" = "1" ]; then
   echo "== dry run: not flashing =="
