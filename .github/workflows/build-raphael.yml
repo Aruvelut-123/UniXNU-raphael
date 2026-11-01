@@ -160,14 +160,28 @@ jobs:
         run: |
           SRC=dxb/xnu/bsd/dev/sweet_usb.c
           grep -n 'panel_report' "$SRC" || echo "(no panel reporter: patch skipped)"
-          grep -n 'panel_springboard' "$SRC" || echo "(no springboard counter: patch skipped)"
           strings -a raphael/inputs/raphael/kernel.macho | grep -F 'SWEET PANEL' || true
           if grep -q 'panel_report' "$SRC" \
-             && strings -a raphael/inputs/raphael/kernel.macho \
-                | grep -qF '=== SWEET PANEL t=%us log=%llu exec=%u crash=%u sb=%u ==='; then
+             && strings -a raphael/inputs/raphael/kernel.macho | grep -qF '=== SWEET PANEL t=%us'; then
             echo "panel-digest patch: APPLIED"
           else
             echo "::error::0103 was skipped; the phone would boot without the panel digest"
+            exit 1
+          fi
+
+      - name: Verify the SpringBoard-focused panel landed
+        run: |
+          SRC=dxb/xnu/bsd/dev/sweet_usb.c
+          echo "=== rings ==="
+          grep -n 'panel_sb\[\|panel_fatal\[\|panel_usb\[' "$SRC" || echo "(rings missing: 0104 skipped)"
+          echo "=== kernel strings ==="
+          strings -a raphael/inputs/raphael/kernel.macho | grep -F -- '-- springboard --' || true
+          strings -a raphael/inputs/raphael/kernel.macho | grep -F -- '-- assert/dyld --' || true
+          if strings -a raphael/inputs/raphael/kernel.macho | grep -qF 'sbexec=%u sbcrash=%u' \
+             && grep -q 'panel_sb\[' "$SRC"; then
+            echo "springboard panel: APPLIED"
+          else
+            echo "::error::0104 was skipped; the panel would not isolate SpringBoard"
             exit 1
           fi
 
