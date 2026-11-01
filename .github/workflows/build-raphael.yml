@@ -75,7 +75,7 @@ jobs:
           # overlay ios-sweet's XNU patches/shims onto blacktop's patches dir
           cp ios-sweet/xnu/patches/*.patch ios-sweet/xnu/patches/*.sh dxb/patches/ 2>/dev/null || true
           # our own kernel patches (they sort after ios-sweet's 00xx series)
-          cp raphael/patches/0101-*.patch dxb/patches/ 2>/dev/null || true
+          cp raphael/patches/01*.patch dxb/patches/ 2>/dev/null || true
           ls dxb/patches/01*.patch
           # libfirehose_kernel is built arm64e-only; the SWEET kernel is plain arm64
           sed -i '' 's/ARCHS="x86_64 arm64e" VALID_ARCHS="x86_64 arm64e"/ARCHS="x86_64 arm64e arm64" VALID_ARCHS="x86_64 arm64e arm64"/' dxb/build.sh
@@ -153,6 +153,18 @@ jobs:
             echo "CDC-ACM serial-log patch: APPLIED"
           else
             echo "::error::the CDC-ACM patch was skipped; descriptors are still ECM"
+            exit 1
+          fi
+
+      - name: Verify the console-replay patch landed
+        run: |
+          SRC=dxb/xnu/bsd/dev/sweet_usb.c
+          grep -n 'ud_ring_scan' "$SRC" || echo "(no ring scanner: patch skipped)"
+          strings -a raphael/inputs/raphael/kernel.macho | grep -F 'SWEETDBG' || true
+          if strings -a raphael/inputs/raphael/kernel.macho | grep -qF 'SWEETDBG log=%llu first-crash=%llu'; then
+            echo "console-replay patch: APPLIED"
+          else
+            echo "::error::0102 was skipped; the phone would boot without the log replay"
             exit 1
           fi
 
