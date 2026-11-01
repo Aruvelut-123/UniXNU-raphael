@@ -162,7 +162,7 @@ jobs:
           grep -n 'panel_report' "$SRC" || echo "(no panel reporter: patch skipped)"
           strings -a raphael/inputs/raphael/kernel.macho | grep -F 'SWEET PANEL' || true
           if grep -q 'panel_report' "$SRC" \
-             && strings -a raphael/inputs/raphael/kernel.macho | grep -qF '=== SWEET PANEL t=%us'; then
+             && strings -a raphael/inputs/raphael/kernel.macho | grep -qF '=== SWEET t=%us'; then
             echo "panel-digest patch: APPLIED"
           else
             echo "::error::0103 was skipped; the phone would boot without the panel digest"
@@ -209,7 +209,7 @@ jobs:
           echo "=== source state ==="
           grep -n 'panel_fb\[' "$SRC" || echo "(no fb ring: 0107 skipped)"
           grep -n 'sweetpanel' "$SRC" || echo "(no panel switch boot-arg)"
-          grep -n 'panel_fbseen == 0' "$SRC" || echo "(panel would paint over the GUI)"
+          grep -n 'panel_fbswaps' "$SRC" || echo "(no swap counter: 0108 skipped)"
           echo "=== kernel strings ==="
           strings -a raphael/inputs/raphael/kernel.macho | grep -F -- '-- crash top --' || true
           strings -a raphael/inputs/raphael/kernel.macho | grep -F -- 'sweetpanel' || true
