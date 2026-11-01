@@ -76,6 +76,34 @@ def main():
         total += p.stat().st_size
     print("parts: %d files, %.2f GiB" % (len(parts), total / 2 ** 30))
 
+    # Per-part sha256 first: a half-downloaded or corrupt part must never
+    # reach the flash step.
+    parts_sha = Path(args.parts) / "root-parts.sha256"
+    if parts_sha.exists():
+        want = {}
+        for line in parts_sha.read_text().splitlines():
+            bits = line.split()
+            if len(bits) == 2:
+                want[bits[1]] = bits[0]
+        bad = 0
+        for p in parts:
+            exp = want.get(p.name)
+            if exp is None:
+                print("  %-16s no checksum published" % p.name)
+                continue
+            h = hashlib.sha256()
+            with open(p, "rb") as f:
+                for chunk in iter(lambda: f.read(16 << 20), b""):
+                    h.update(chunk)
+            got = h.hexdigest()
+            ok = got == exp
+            if not ok:
+                bad += 1
+            print("  %-16s %s" % (p.name, "OK" if ok else "SHA256 MISMATCH"))
+        if bad:
+            raise SystemExit("%d part(s) failed the checksum -- do not flash" % bad)
+        print("all parts match the published checksums")
+
     out = Path(args.output)
     with open(out, "wb") as o:
         for p in parts:
