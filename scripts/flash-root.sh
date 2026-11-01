@@ -14,7 +14,7 @@
 set -euo pipefail
 
 REPO="JohnLeeeeeee678/UniXNU-raphael"
-TAG="${TAG:-iosroot-16.7.16-20261031-141135}"
+TAG="${TAG:-iosroot-16.7.16-20261101-093843}"
 
 PARTS_DIR=""
 WORK_DIR="raphael-root"

@@ -169,6 +169,24 @@ jobs:
             exit 1
           fi
 
+      - name: Verify the panel-report-state patch landed
+        run: |
+          SRC=dxb/xnu/bsd/dev/sweet_usb.c
+          echo "=== source state ==="
+          grep -n 'gui=%d' "$SRC" || echo "(no gui= field: 0111 skipped)"
+          grep -n 'int muted = sweet_console_muted' "$SRC" || echo "(m= is still read after it is cleared: 0111 skipped)"
+          echo "=== kernel strings ==="
+          strings -a raphael/inputs/raphael/kernel.macho | grep -F 'gui=%d' || true
+          # 0111 makes the report say whether the GUI took the screen.  Without
+          # it the phone can reach the home screen and still look broken.
+          if strings -a raphael/inputs/raphael/kernel.macho | grep -qF 'gui=%d' \
+             && grep -q 'int muted = sweet_console_muted' "$SRC"; then
+            echo "panel report state: APPLIED"
+          else
+            echo "::error::0111 was skipped; the report cannot tell whether the GUI took the screen"
+            exit 1
+          fi
+
       - name: Verify the SpringBoard-focused panel landed
         run: |
           SRC=dxb/xnu/bsd/dev/sweet_usb.c

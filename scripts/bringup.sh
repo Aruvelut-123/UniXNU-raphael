@@ -21,7 +21,7 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "$HERE/.." && pwd)"
 
 IMAGE="${IMAGE:-D:/raphael-ios/boot/TEST_Y.img}"
-WORK_DIR="${WORK_DIR:-D:/raphael-ios/out}"
+WORK_DIR="${WORK_DIR:-D:/raphael-ios/out/hfsroot2}"
 FLASH=1
 
 while [ $# -gt 0 ]; do
@@ -58,6 +58,10 @@ echo
 if [ "$FLASH" = "1" ]; then
   echo "== verifying the pieces =="
   python3 "$ROOT/scripts/verify_pieces.py" "$WORK_DIR/ios16-root.simg" "$WORK_DIR/pieces"
+
+  echo
+  echo "== verifying the volume =="
+  python3 "$ROOT/scripts/verify_root.py" "$WORK_DIR/ios16-root.simg"
 
   echo
   echo "== flashing userdata, descending =="
