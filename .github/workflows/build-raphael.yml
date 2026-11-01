@@ -173,12 +173,12 @@ jobs:
         run: |
           SRC=dxb/xnu/bsd/dev/sweet_usb.c
           echo "=== rings ==="
-          grep -n 'panel_sb\[\|panel_fatal\[\|panel_usb\[' "$SRC" || echo "(rings missing: 0104 skipped)"
+          grep -n 'panel_sb\[\|panel_usb\[' "$SRC" || echo "(rings missing: 0104 skipped)"
           grep -n 'SWEET CS' "$SRC" || echo "(panel does not keep the SWEET CS lines: 0106 skipped)"
           echo "=== kernel strings ==="
           strings -a raphael/inputs/raphael/kernel.macho | grep -F -- '-- springboard --' || true
-          strings -a raphael/inputs/raphael/kernel.macho | grep -F -- '-- assert/dyld --' || true
-          if strings -a raphael/inputs/raphael/kernel.macho | grep -qF 'sbexec=%u sbcrash=%u' \
+          strings -a raphael/inputs/raphael/kernel.macho | grep -F -- '-- fb --' || true
+          if strings -a raphael/inputs/raphael/kernel.macho | grep -qF 'sb=%u/%u fb=%u' \
              && grep -q 'panel_sb\[' "$SRC"; then
             echo "springboard panel: APPLIED"
           else
@@ -200,6 +200,24 @@ jobs:
             echo "page-rejection diagnostics: APPLIED"
           else
             echo "::error::0105 was skipped; a rejected page would stay unexplained"
+            exit 1
+          fi
+
+      - name: Verify the framebuffer/crash panel landed
+        run: |
+          SRC=dxb/xnu/bsd/dev/sweet_usb.c
+          echo "=== source state ==="
+          grep -n 'panel_fb\[' "$SRC" || echo "(no fb ring: 0107 skipped)"
+          grep -n 'sweetpanel' "$SRC" || echo "(no panel switch boot-arg)"
+          grep -n 'panel_fbseen == 0' "$SRC" || echo "(panel would paint over the GUI)"
+          echo "=== kernel strings ==="
+          strings -a raphael/inputs/raphael/kernel.macho | grep -F -- '-- crash top --' || true
+          strings -a raphael/inputs/raphael/kernel.macho | grep -F -- 'sweetpanel' || true
+          if grep -q 'panel_fb\[' "$SRC" && grep -q 'sweetpanel' "$SRC" \
+             && strings -a raphael/inputs/raphael/kernel.macho | grep -qF -- '-- crash top --'; then
+            echo "framebuffer panel: APPLIED"
+          else
+            echo "::error::0107 was skipped; the panel would not show whether the GUI presents"
             exit 1
           fi
 
