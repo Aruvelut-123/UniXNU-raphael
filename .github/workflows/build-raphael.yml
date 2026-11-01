@@ -75,7 +75,7 @@ jobs:
           # overlay ios-sweet's XNU patches/shims onto blacktop's patches dir
           cp ios-sweet/xnu/patches/*.patch ios-sweet/xnu/patches/*.sh dxb/patches/ 2>/dev/null || true
           # our own kernel patches (they sort after ios-sweet's 00xx series)
-          cp raphael/patches/0100-*.patch dxb/patches/ 2>/dev/null || true
+          cp raphael/patches/0101-*.patch dxb/patches/ 2>/dev/null || true
           ls dxb/patches/01*.patch
           # libfirehose_kernel is built arm64e-only; the SWEET kernel is plain arm64
           sed -i '' 's/ARCHS="x86_64 arm64e" VALID_ARCHS="x86_64 arm64e"/ARCHS="x86_64 arm64e arm64" VALID_ARCHS="x86_64 arm64e arm64"/' dxb/build.sh
@@ -141,9 +141,16 @@ jobs:
       # patch really landed instead of silently booting an ECM kernel.
       - name: Verify the CDC-ACM serial-log patch landed
         run: |
+          echo "=== source state ==="
+          SRC=dxb/xnu/bsd/dev/sweet_usb.c
+          grep -n 'ud_cfg_desc\[' "$SRC" || echo "(no descriptor found)"
+          grep -n 'GET_LINE_CODING' "$SRC" || echo "(no line-coding handling: patch skipped)"
+          grep -n 'ud_raw_send' "$SRC" || echo "(no raw log sender: patch skipped)"
+          echo "=== kernel strings ==="
           strings -a raphael/inputs/raphael/kernel.macho | grep -i 'Sweet iOS' || true
-          if strings -a raphael/inputs/raphael/kernel.macho | grep -q 'Sweet iOS (USB Serial)'; then
-            echo "CDC-ACM log patch: APPLIED"
+          if strings -a raphael/inputs/raphael/kernel.macho | grep -q 'Sweet iOS (USB Serial)' \
+             && grep -q 'GET_LINE_CODING' "$SRC"; then
+            echo "CDC-ACM serial-log patch: APPLIED"
           else
             echo "::error::the CDC-ACM patch was skipped; descriptors are still ECM"
             exit 1
