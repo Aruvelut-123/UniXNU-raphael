@@ -226,6 +226,15 @@ jobs:
           sha256sum ios16-root.simg | tee ios16-root.simg.sha256
           df -h /
 
+      - name: Verify the published image
+        run: |
+          set -e
+          # The steps above prove the volume itself.  This proves the file
+          # that actually gets published -- the sparse image the phone will
+          # be flashed with -- and it fails the build if the activation seed
+          # did not make it into the bytes.
+          python3 scripts/verify_root.py ios16-root.simg
+
       - name: Split and publish release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
