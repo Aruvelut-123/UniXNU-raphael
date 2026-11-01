@@ -63,6 +63,9 @@ python3 "$SCRIPTS/split_for_abl.py" "$WORK_DIR/ios16-root.simg" -o "$WORK_DIR/pi
 echo "== verifying the pieces =="
 python3 "$SCRIPTS/verify_pieces.py" "$WORK_DIR/ios16-root.simg" "$WORK_DIR/pieces"
 
+echo "== verifying the volume =="
+python3 "$SCRIPTS/verify_root.py" "$WORK_DIR/ios16-root.simg"
+
 if [ "$DRY" = "1" ]; then
   echo "== dry run: not flashing =="
   cat "$WORK_DIR/pieces/ORDER.txt"
