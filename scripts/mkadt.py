@@ -5,15 +5,7 @@ Only what the early boot path actually reads (see NOTES.md); every MMIO
 address comes from the device's live FDT (see tools/devices.py for the
 per-board profile).
 
-The *Apple* identity -- product type, model string, chip-id, presented canvas
-and the base ADT its /product node comes from -- is NOT part of the hardware
-profile: it is the ``ios`` sub-dict of the device profile in devices.py, so it
-can move with the iOS release the port targets without touching this file.
-It used to be hardcoded here as the iPhone X (D22AP / iPhone10,3).
-
 Usage:  mkadt.py OUT.adt [--device sweet|guacamole|raphael] [--dump] [--qemu] [--highmem]
-                      [--ios-product-type P] [--ios-model M] [--ios-chip-id N]
-                      [--ios-canvas WxH] [--base-adt PATH]
 """
 import hashlib, os, struct, sys
 
@@ -31,27 +23,18 @@ QEMU_VTIMER_INTID = 27
 
 BOOT_MANIFEST_HASH = hashlib.sha384(b'sweet boot manifest').digest()
 
-# The iOS userland is an iPhone IPSW. MobileGestalt derives product type,
-# device class, home-button-less UI, artwork etc. from the root identity and
-# /product of that device's real device tree. That tree is an Apple artifact
-# (kept out of git): scripts/get-base-adt.sh extracts it from the IPSW.
-#
-# Which device that is comes from the profile's `ios` sub-dict (devices.py).
-# The environment variable / --base-adt override below still name the D22AP
-# artifact for backwards compatibility with existing callers.
-DEFAULT_BASE_ADT = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'base-adt.adt')
-LEGACY_BASE_ADT = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'base-d22ap.adt')
-D22AP_ADT = os.environ.get('UNIXNU_D22AP_ADT') or (
-    LEGACY_BASE_ADT if os.path.exists(LEGACY_BASE_ADT) else DEFAULT_BASE_ADT)
+# The iOS userland is the iPhone X (iPhone10,3 / D22AP) IPSW. MobileGestalt
+# derives product type, device class, home-button-less UI, artwork etc. from
+# the root identity and /product of the real D22AP device tree. That tree is
+# an Apple artifact (kept out of git): extract it from the IPSW with
+#   tools/remotezip.py URL DeviceTree.d22ap.im4p DIR
+#   ipsw img4 im4p extract DIR/Firmware/all_flash/DeviceTree.d22ap.im4p -o d22ap.adt
+D22AP_ADT = os.environ.get('UNIXNU_D22AP_ADT', os.path.join(os.path.dirname(os.path.abspath(__file__)), 'base-d22ap.adt'))
 
 
-def base_product(path=None):
-    """/product properties of the real base device tree, without the syscfg
-    placeholders iBoot would fill in (flag bit set) and the node bookkeeping.
-
-    The tree is the one get-base-adt.sh fetched for the profile's iOS identity
-    (D22AP historically, an iOS 26 device now)."""
-    path = path or D22AP_ADT
+def d22ap_product(path=D22AP_ADT):
+    """/product properties of the real D22AP tree, without the syscfg
+    placeholders iBoot would fill in (flag bit set) and the node bookkeeping."""
     if not os.path.exists(path):
         print(f'warning: {path} missing, no /product node', file=sys.stderr)
         return None
@@ -60,10 +43,6 @@ def base_product(path=None):
         if dict((k, v) for k, f, v in c.props).get('name') == b'product\0':
             return [(k, v) for k, f, v in c.props if not f and k not in ('name', 'AAPL,phandle')]
     raise SystemExit(f'{path}: no /product node')
-
-
-# Backwards-compatible alias: the function used to be named after the device.
-d22ap_product = base_product
 
 u32 = lambda *v: struct.pack('<%dI' % len(v), *v)
 u64 = lambda *v: struct.pack('<%dQ' % len(v), *v)
@@ -77,28 +56,14 @@ def node(name, props=(), children=()):
     return n
 
 
-def build(seed=None, qemu=False, highmem=False, device='sweet', dram_size=None, owned_memory_size=None,
-          ios=None, base_adt=None):
+def build(seed=None, qemu=False, highmem=False, device='sweet', dram_size=None, owned_memory_size=None):
     """qemu=True: same tree, but with QEMU virt's GIC addresses and CNTFRQ (tools/qemu-sweet.py).
     dram_size overrides the profile's kernel RAM size (e.g. 0x180000000 on an 8 GB guacamole).
-    owned_memory_size emits /chosen/darwinboot-memory-size for the contiguous kernel window.
-    ios overrides keys of the profile's `ios` identity dict (devices.py).
-    base_adt overrides the path of the fetched base device tree (default: the
-    profile identity's artifact)."""
+    owned_memory_size emits /chosen/darwinboot-memory-size for the contiguous kernel window."""
     if owned_memory_size is not None and (
             not 0x10000000 <= owned_memory_size <= 0x200000000 or owned_memory_size & 0x1FFFFF):
         raise SystemExit('owned-memory-size must be 256 MiB..8 GiB in 2 MiB steps')
     dev = devices.get(device)
-    ident = devices.default_ios(device)
-    ident.update(ios or {})
-    product_type = ident['product_type']
-    model = ident['model']
-    target_type = ident.get('target_type') or product_type.rstrip('AP')
-    chip_id = ident['chip_id']
-    canvas_w, canvas_h = ident['canvas_width'], ident['canvas_height']
-    display_scale = ident.get('display_scale', 3)
-    if base_adt:
-        globals()['D22AP_ADT'] = base_adt
     phys_base, mem_size = (dev['high_phys_base'], dev['high_mem_size']) if highmem else (dev['phys_base'], dev['mem_size'])
     if dram_size is not None:
         mem_size = dram_size
@@ -127,19 +92,18 @@ def build(seed=None, qemu=False, highmem=False, device='sweet', dram_size=None, 
         # libimg4 (cryptexd) aborts "failed to get crypto algorithm" without
         # it; real A11+ device trees say sha2-384.
         ('crypto-hash-method', cstr('sha2-384')),
-        # MobileGestalt's screen class: display-scale (u32) comes from /chosen,
-        # the pixel size from IOMobileFramebuffer. Scale 0 makes SpringBoard's
-        # FBSDisplayMode "infxinf@0x" invalid. 1080x2400 @3x = 360x800 points
-        # (like iPhone X class devices); the value is the profile identity's.
-        ('display-scale', u32(display_scale)),
+        # MobileGestalt's screen class: display-scale (u32, default 0) comes
+        # from /chosen, the pixel size from IOMobileFramebuffer. Scale 0 makes
+        # SpringBoard's FBSDisplayMode "infxinf@0x" invalid. 1080x2400 @3x =
+        # 360x800 points (like iPhone X class devices).
+        ('display-scale', u32(3)),
         # XNU derives IOPlatformUUID (gethostuuid) from these on arm; without
         # them CFPreferences cannot use kCFPreferencesCurrentHost (no ByHost
         # files), so e.g. DataMigration never records LastSystemVersion and
-        # migrates on every boot. Synthetic ECID (not the phone's); chip-id is
-        # the AES id of the iOS device whose userland runs here, from the
-        # profile identity (A11 / iPhone X = 0x8015 historically).
+        # migrates on every boot. Synthetic ECID (not the phone's); chip-id
+        # of the A11 that the iPhone X userland expects.
         ('unique-chip-id', struct.pack('<Q', SWEET_ECID)),
-        ('chip-id', u32(chip_id)),
+        ('chip-id', u32(0x8015)),
         # Security status as on a dev-fused, undemoted board (tuple 0,0,1,1):
         # MobileGestalt reads these from /chosen, and mobileactivationd's
         # DeviceType then takes its native "Hactivation" branch (state
@@ -209,8 +173,8 @@ def build(seed=None, qemu=False, highmem=False, device='sweet', dram_size=None, 
             ph(),
             ('device_type', cstr('display-subsystem')),
             ('compatible', cstr('sweet,display')),
-            ('canvas-width', u32(canvas_w)),
-            ('canvas-height', u32(canvas_h)),
+            ('canvas-width', u32(1125)),
+            ('canvas-height', u32(2436)),
         ])])
 
     fbcon = node('sweet-fbcon', [
@@ -232,7 +196,7 @@ def build(seed=None, qemu=False, highmem=False, device='sweet', dram_size=None, 
     defaults = node('defaults', [ph(), ('no-effaceable-storage', u32(1))])
 
     # MobileGestalt HomeButtonType = IODeviceTree:/buttons home-button-type
-    # (iPhone X / D22AP: 2, no Home button; absent = 0 = Home-button device).
+    # (D22AP: 2, no Home button; absent = 0 = Home-button device).
     buttons = node('buttons', [
         ph(),
         ('button-names', cstr('volup') + cstr('voldown') + cstr('hold')),
@@ -240,13 +204,11 @@ def build(seed=None, qemu=False, highmem=False, device='sweet', dram_size=None, 
         ('opposed-power-vol-buttons', u32(1)),
     ])
 
-    product_props = base_product(base_adt or D22AP_ADT)
+    product_props = d22ap_product()
     product = [node('product', [ph()] + product_props)] if product_props else []
 
-    # Identity of the iOS device whose userland runs here: compatible[0] is
-    # hw.model/hw.target (the product type, e.g. D22AP), model is
-    # hw.machine/hw.product (e.g. iPhone10,3). Both come from devices.py's
-    # `ios` dict, so moving to an iOS 26-capable device is a one-line change.
+    # Identity of the iPhone X whose userland runs here: compatible[0] is
+    # hw.model/hw.target (D22AP), model is hw.machine/hw.product (iPhone10,3).
     #
     # The built-in SweetPlatformExpert personality is IONameMatch 'xiaomi,sweet'
     # and IODTCompareNubName compares that key against the root's
@@ -258,10 +220,10 @@ def build(seed=None, qemu=False, highmem=False, device='sweet', dram_size=None, 
     platform_match = dev.get('platform_match', 'xiaomi,sweet')
     return node('device-tree', [
         ph(),
-        ('compatible', cstr(product_type) + cstr(model) + cstr(platform_match) + cstr(dev['board_compat']) + cstr(dev['soc_compat']) + cstr('AppleARM')),
-        ('model', cstr(model)),
-        ('target-type', cstr(target_type)),
-        ('target-sub-type', cstr(product_type)),
+        ('compatible', cstr('D22AP') + cstr('iPhone10,3') + cstr(platform_match) + cstr(dev['board_compat']) + cstr(dev['soc_compat']) + cstr('AppleARM')),
+        ('model', cstr('iPhone10,3')),
+        ('target-type', cstr('D22')),
+        ('target-sub-type', cstr('D22AP')),
         ('manufacturer', cstr('Apple Inc.')),
         ('#address-cells', u32(2)),
         ('#size-cells', u32(2)),
@@ -280,54 +242,17 @@ if __name__ == '__main__':
                     help='override the kernel RAM size, e.g. 0x180000000 for an 8 GB guacamole')
     ap.add_argument('--owned-memory-size', type=lambda s: int(s, 0), default=None,
                     help='DarwinBoot contiguous window in bytes (256 MiB..8 GiB, 2 MiB steps)')
-    ap.add_argument('--ios-product-type', default=None,
-                    help='override the profile identity product type, e.g. D321AP')
-    ap.add_argument('--ios-model', default=None,
-                    help='override the profile identity model string, e.g. iPhone11,2')
-    ap.add_argument('--ios-target-type', default=None,
-                    help='override the target-type (default: product type without the AP suffix)')
-    ap.add_argument('--ios-chip-id', type=lambda s: int(s, 0), default=None,
-                    help='override the AES chip-id, e.g. 0x8020 for A12')
-    ap.add_argument('--ios-canvas', default=None, metavar='WxH',
-                    help='override the presented canvas, e.g. 828x1792')
-    ap.add_argument('--ios-display-scale', type=int, default=None,
-                    help='override /chosen display-scale (1|2|3)')
-    ap.add_argument('--base-adt', default=None,
-                    help='path to the fetched base device tree (default: the identity artifact)')
-    ap.add_argument('--print-identity', action='store_true',
-                    help='print the resolved iOS identity as JSON and exit')
     ap.add_argument('--dump', action='store_true')
     args = ap.parse_args()
-    ios = {}
-    for key, value in (('product_type', args.ios_product_type), ('model', args.ios_model),
-                       ('target_type', args.ios_target_type), ('chip_id', args.ios_chip_id),
-                       ('display_scale', args.ios_display_scale)):
-        if value is not None:
-            ios[key] = value
-    if args.ios_canvas is not None:
-        try:
-            ios['canvas_width'], ios['canvas_height'] = (int(v, 0) for v in args.ios_canvas.lower().split('x'))
-        except ValueError:
-            raise SystemExit('--ios-canvas expects WxH, e.g. 828x1792')
-    if args.print_identity:
-        import json
-        ident = devices.default_ios(args.device)
-        ident.update(ios)
-        print(json.dumps(ident, indent=2, sort_keys=True))
-        sys.exit(0)
     if args.dump and os.path.exists(args.out):
         blob = open(args.out, 'rb').read()
         adt.dump(adt.parse(blob)[0])
         print(f'{args.out}: {len(blob)} bytes (existing file, not rebuilt)', file=sys.stderr)
         sys.exit(0)
     root = build(qemu=args.qemu, highmem=args.highmem, device=args.device,
-                 dram_size=args.dram_size, owned_memory_size=args.owned_memory_size,
-                 ios=ios, base_adt=args.base_adt)
+                 dram_size=args.dram_size, owned_memory_size=args.owned_memory_size)
     blob = adt.serialize(root)
     open(args.out, 'wb').write(blob)
     if args.dump:
         adt.dump(adt.parse(blob)[0])
-    ident = devices.default_ios(args.device)
-    ident.update(ios)
-    print(f'{args.out}: {len(blob)} bytes ({args.device}, {ident["product_type"]}/{ident["model"]})',
-          file=sys.stderr)
+    print(f'{args.out}: {len(blob)} bytes ({args.device})', file=sys.stderr)

@@ -7,28 +7,16 @@ name: build-raphael
 # proven SM8150 kernel build and UEFI/UniXNU firmware, only swapping the device
 # tree and the Apple Device Tree (ADT) profile (1080x2340 panel).
 #
-# The iOS identity is now parameterised in scripts/devices.py (the `ios`
-# sub-dict: product type / model / chip-id / canvas / base-ADT IPSW URL /
-# DeviceTree member).  The iPhone X (D22AP / iPhone10,3) that carried iOS 16.7.16
-# cannot run iOS 26, so the identity points at an iOS 26-capable device once
-# research-ios26.md lands; scripts/get-base-adt.sh reads it from devices.py and
-# mkadt.py emits it into the ADT.  Until then the placeholder values are used.
-#
 # Two jobs:
-#   1. kernel  (macos-{MACOS_VERSION}): builds the SM8150 XNU kernel the SAME
-#      public way guacamole does -- via dipa-studio/ios-sweet +
-#      blacktop/darwin-xnu-build (MACHINE_CONFIG=SWEET). Fully public; NO
-#      private defconfig needed.
+#   1. kernel  (macos-14): builds the SM8150 XNU 8796 kernel the SAME public way
+#      guacamole does -- via dipa-studio/ios-sweet + blacktop/darwin-xnu-build
+#      (MACHINE_CONFIG=SWEET). This is fully public; NO private defconfig needed.
 #   2. build   (ubuntu-latest): builds the Aloha UEFI firmware volume, packs the
-#      FAT payload (kernel + raphael ADT), packs the Android boot image, and
-#      (new) packages the SM8150_EFI.fd as a flashable esp image.
-#   3. efi     (ubuntu-latest): standalone job emitting a flashable raw esp
-#      image + an Android-sparse variant of SM8150_EFI.fd.
+#      FAT payload (kernel + raphael ADT), and packs the Android boot image.
 #
 # Everything the build job needs that is not fetched from a public tree is in
 # this repo (board.toml, scripts/, vendored patches/). The only network input
-# for the ADT is the public IPSW named by the device identity, auto-extracted by
-# scripts/get-base-adt.sh.
+# is the public iPhone X (D22AP) IPSW, auto-extracted by scripts/get-base-d22ap.sh.
 #
 # Run order: enable Actions -> run "build-raphael" (it chains kernel -> build via
 # the uploaded kernel artifact). Or run the two jobs in order manually.
@@ -51,28 +39,19 @@ on:
     paths:
       - board.toml
       - patches/**
-      - scripts/devices.py
-      - scripts/mkadt.py
 
 permissions:
   contents: read
 
 jobs:
   kernel:
-    # XNU for iOS 26 needs a newer Xcode toolchain -> macos-15.  The XNU
-    # version, Xcode/macOS requirement and darwin-xnu-build SHA could NOT be
-    # verified from this machine (api.github.com unreachable; lead's
-    # research-ios26.md marks them [UNVERIFIED]).  Do NOT bump them to a guess
-    # and present it as fact.  Keep these placeholders until the lead confirms
-    # them; CI will fail loudly on the wrong SHA/MACOS_VERSION, which is the
-    # honest signal.
-    runs-on: macos-15
+    # XNU 8796 needs Xcode 15 (iig ABI) -> macos-14, like ios-sweet.
+    runs-on: macos-14
     timeout-minutes: 240
     env:
       # Without MACOS_VERSION build.sh pops an interactive gum menu and dies
-      # ("could not open TTY").  [UNVERIFIED] for iOS 26 -- see research-ios26.md
-      # item 3.  Do not guess.
-      MACOS_VERSION: "<PLACEHOLDER: macOS version for iOS 26 Xcode (UNVERIFIED)>"
+      # ("could not open TTY"). 13.5 == xnu-8796 == the iOS 16 generation.
+      MACOS_VERSION: "13.5"
       MACHINE_CONFIG: SWEET
       KERNEL_CONFIG: DEVELOPMENT
     steps:
@@ -80,7 +59,7 @@ jobs:
         with:
           path: raphael
 
-      - name: Checkout ios-sweet (XNU build scripts + sweet platform patches)
+      - name: Checkout ios-sweet (XNU 8796 build scripts + sweet platform patches)
         uses: actions/checkout@v4
         with:
           repository: dipa-studio/ios-sweet
@@ -88,11 +67,7 @@ jobs:
 
       - name: Fetch darwin-xnu-build at the pinned commit ios-sweet uses
         env:
-          # [UNVERIFIED] darwin-xnu-build SHA for iOS 26. The previous pin
-          # 663906528d1cd5ea8fde7de6f16de73db9511549 produced XNU 8796 for iOS
-          # 16; a newer XNU is required but which commit is NOT established
-          # (research-ios26.md item 3). Do not guess.
-          DXB_SHA: "<PLACEHOLDER: darwin-xnu-build SHA for iOS 26 (UNVERIFIED)>"
+          DXB_SHA: 663906528d1cd5ea8fde7de6f16de73db9511549
         run: |
           git init -q dxb
           git -C dxb fetch -q --depth 1 "https://github.com/blacktop/darwin-xnu-build" "$DXB_SHA"
@@ -124,7 +99,7 @@ jobs:
           xcodebuild -version
           xcrun --find iig
 
-      - name: Build XNU (iOS 26 generation, SWEET platform, arm64)
+      - name: Build XNU 8796 (SWEET platform, arm64)
         working-directory: dxb
         env:
           MAKEFLAGS: '-k'
@@ -336,8 +311,8 @@ jobs:
       - name: Fetch raphael DTB (real android-raphael.dtb shipped by Aloha)
         run: bash scripts/get-raphael-dtb.sh
 
-      - name: Fetch base ADT for the configured iOS identity (auto from public IPSW)
-        run: bash scripts/get-base-adt.sh
+      - name: Fetch iPhone X (D22AP) base ADT (auto from public IPSW)
+        run: bash scripts/get-base-d22ap.sh
 
       - name: Fetch the prebuilt BaseCrypto driver (Mu external dependency)
         run: |
@@ -369,9 +344,6 @@ jobs:
       - name: Pack the Android boot image
         run: python3 scripts/build-bootimg.py
 
-      - name: Build the flashable esp image from SM8150_EFI.fd
-        run: python3 scripts/build-efi-image.py
-
       - name: Dump build logs on failure
         if: failure()
         run: |
@@ -399,15 +371,3 @@ jobs:
           name: boot-raphael.img
           path: out/raphael/boot/boot-raphael.img
           if-no-files-found: error
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: SM8150_EFI-esp-raw.img
-          path: out/raphael/**/SM8150_EFI.esp.img
-          if-no-files-found: ignore
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: SM8150_EFI-esp-sparse.img
-          path: out/raphael/**/SM8150_EFI.esp.simg
-          if-no-files-found: ignore

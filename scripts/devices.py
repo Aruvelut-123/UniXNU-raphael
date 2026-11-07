@@ -12,20 +12,6 @@ ranges; they differ in the board compatible string and the panel resolution
 (raphael's panel is 1080x2340). `sweet` is the original SM7150 bring-up and is
 kept for reference.
 
-Each profile also carries an ``ios`` sub-dict: the *Apple* identity the kernel
-presents to the iOS userland (product type / model / chip-id / canvas / the
-base-ADT source). It is deliberately separate from the hardware keys above,
-because the two are unrelated: the SM8150 board is fixed, while the iOS
-identity is whatever iPhone the running userland came from.
-
-The identity used to be hardcoded in mkadt.py and get-base-d22ap.sh (iPhone X,
-D22AP / iPhone10,3, A11 chip-id 0x8015, 1125x2436 canvas). The iPhone X cannot
-run iOS 26 -- it tops out at iOS 16.7.16 -- so the identity is now a per-device
-value that moves with the iOS release the port targets. Change it in ONE place:
-the ``ios`` dict below.
-
-`default_ios(device)` returns that dict; `get(name)` returns the whole profile.
-
 Used by tools/mkadt.py (ADT) and mirrored by shim/boards/*.h (framebuffer,
 GIC, probe addresses). Keep the two in sync when changing a value.
 """
@@ -133,41 +119,6 @@ DEVICES = {
         'cpu_clocks': [1785600000] * 4 + [2419200000] * 3 + [2841600000],
         'memory_frequency': 2133000000,
         'bus_frequency': 100000000,
-
-        # --- Apple identity presented to the iOS userland -------------------
-        # Everything below is read back by scripts/mkadt.py and
-        # scripts/build-efi-image.py.  Values marked [UNVERIFIED] are the
-        # best-known candidates; see the note above PLACEHOLDER_* at the
-        # bottom of this file.
-        'ios': {
-            # Base-ADT source: the DeviceTree member of the restore IPSW whose
-            # /product node the ADT carries.
-            # [VERIFIED] iPhone 11 (N104AP / iPhone12,1) is the first
-            # generation that runs iOS 26; iPhone XS (D321AP / iPhone11,2) tops
-            # out at 18.7.11. Source: research-ios26.md / ipsw.me API.
-            'product_type': 'N104AP',
-            'model': 'iPhone12,1',
-            'target_type': 'N104',
-            # [VERIFIED] A13 (t8030) cpid 32816 = 0x8030.
-            'chip_id': 0x8030,
-            # Canvas of the *presented* device, not of the panel: the iPhone 11
-            # is 828x1792 @2x, while raphael's own panel is 1080x2340.
-            'canvas_width': 828,
-            'canvas_height': 1792,
-            'display_scale': 2,
-            # [VERIFIED] iPhone 12,1 iOS 26.0 (23A341) restore IPSW, sha256
-            # 65da7bf14d281fba63a11c61e09d4a3a4b865d49f7e628d97295633758a347bb.
-            'ipsw_url': ('https://updates.cdn-apple.com/2025FallFCS/fullrestores/093-40149/'
-                         'C2DDBCFD-327C-417B-A463-8F7820561E80/'
-                         'iPhone12,1_26.0_23A341_Restore.ipsw'),
-            # [UNVERIFIED] the obvious pattern from the d22ap build
-            # (Firmware/all_flash/DeviceTree.d22ap.im4p), but not confirmed
-            # against this IPSW. Confirm with:
-            #   unzip -l iPhone12,1_26.0_23A341_Restore.ipsw | grep DeviceTree
-            'dt_member': 'Firmware/all_flash/DeviceTree.n104ap.im4p',
-            # True while the three values above are still unverified guesses.
-            'unverified': True,
-        },
     },
 }
 
@@ -177,39 +128,3 @@ def get(name):
         return DEVICES[name]
     except KeyError:
         raise SystemExit(f'unknown device "{name}"; known: {", ".join(sorted(DEVICES))}')
-
-
-# The iOS identity of the reference device (the SM7150 sweet bring-up). Every
-# board that has no `ios` dict of its own presents this one, so mkadt.py has a
-# single well-defined fallback instead of a second hardcoded copy.
-PLACEHOLDER_REFERENCE_IOS = {
-    'product_type': 'D22AP',
-    'model': 'iPhone10,3',
-    'target_type': 'D22',
-    # A11 (iPhone X): 0x8015 is what the shipped iPhone X userland expects.
-    'chip_id': 0x8015,
-    # Canvas of the *presented* device, not of the panel: the iPhone X is
-    # 1125x2436, while raphael's own panel is 1080x2340.
-    'canvas_width': 1125,
-    'canvas_height': 2436,
-    'display_scale': 3,
-    # Verified-available iPhone X (D22AP) iOS 16.7.16 restore IPSW; the iPhone
-    # X never got an iOS 26 restore, so this is the LAST iOS this identity can
-    # source a base ADT from.
-    'ipsw_url': ('https://updates.cdn-apple.com/2025FallFCS/fullrestores/122-77006/'
-                 '1158E502-D76D-4226-AA06-ED5E30CD1111/'
-                 'iPhone10,3,iPhone10,6_16.7.16_20H392_Restore.ipsw'),
-    'dt_member': 'Firmware/all_flash/DeviceTree.d22ap.im4p',
-    'unverified': False,
-}
-
-
-def default_ios(device='sweet'):
-    """The `ios` identity dict for `device`, falling back to the reference one.
-
-    Returns a copy so a caller can override single keys without mutating the
-    profile.
-    """
-    prof = get(device)
-    ident = prof.get('ios') or PLACEHOLDER_REFERENCE_IOS
-    return dict(ident)

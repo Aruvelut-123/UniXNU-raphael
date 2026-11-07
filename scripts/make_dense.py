@@ -10,7 +10,7 @@ DONT_CARE chunk -- but it has a consequence: the blocks a piece skips keep
 whatever the partition held before.
 
 The partition is not empty.  It still holds the previous release of the root
-(the earlier SHNGROOT build), so after flashing unixnu the blocks that
+(the earlier SHNGROOT build), so after flashing the new image the blocks that
 are DONT_CARE in the new one but carried data in the old one keep the old
 bytes.  The old image differed from the new one in 310 blocks, and 47 of those
 sit inside the HFS+ catalog B-tree, so the volume the kernel would mount is not

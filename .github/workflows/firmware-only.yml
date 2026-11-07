@@ -179,8 +179,8 @@ jobs:
       - name: Fetch raphael DTB (real android-raphael.dtb shipped by Aloha)
         run: bash scripts/get-raphael-dtb.sh
 
-      - name: Fetch base ADT for the configured iOS identity (auto from public IPSW)
-        run: bash scripts/get-base-adt.sh
+      - name: Fetch iPhone X (D22AP) base ADT (auto from public IPSW)
+        run: bash scripts/get-base-d22ap.sh
 
       - name: Fetch the prebuilt BaseCrypto driver (Mu external dependency)
         run: |
