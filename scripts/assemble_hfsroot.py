@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Assemble and verify the HFS+ iOS root that the SWEET kernel mounts.
 
-The kernel's root device is the phone's UFS GPT partition named "userdata"
+The kernel's root device is the phone's UFS GPT partition named "unixnu"
 (boot-arg ufsroot=, default "userdata"), published by bsd/dev/sweet_ufs.c and
 mounted with the built-in Apple OSS HFS+ driver (hfs-627).  It expects an HFS+
 volume at the START of that partition -- there is no SHNGROOT manifest and no

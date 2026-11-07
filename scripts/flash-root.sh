@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# Flash the iOS 16.7.16 HFS+ root to the raphael userdata partition.
+# Flash the iOS 16.7.16 HFS+ root to the raphael unixnu partition.
 #
 #   flash-root.sh [--parts-dir DIR] [--work-dir DIR] [--dry-run]
 #
 # Steps: assemble the published parts -> verify sha256 + HFS+ header ->
-# make the image dense -> split into ABL-safe pieces -> flash them to userdata
+# make the image dense -> split into ABL-safe pieces -> flash them to unixnu
 # in DESCENDING order.
 #
 # The SM8150 ABL has two quirks this script works around:
@@ -89,10 +89,10 @@ fi
 echo "== waiting for the phone in fastboot mode =="
 "$FASTBOOT" devices
 
-echo "== flashing userdata (descending order) =="
+echo "== flashing unixnu (descending order) =="
 for p in $(ls "$WORK_DIR"/dense-pieces/p*.simg | sort -r); do
   echo "-- $p"
-  "$FASTBOOT" flash userdata "$p"
+  "$FASTBOOT" flash unixnu "$p"
 done
 
 echo "== done: reboot and boot the image =="

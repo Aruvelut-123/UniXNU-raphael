@@ -1,11 +1,28 @@
 name: ios-root-hfs
 
 # Builds the HFS+ iOS root volume that the SWEET kernel mounts from the
-# `userdata` partition (rd=ufsroot0). This needs a real Linux kernel with
-# FUSE, hfsplus and rsync, so it runs here instead of on the workstation.
+# `unixnu` partition (rd=ufsroot0 + ufsroot=unixnu). This needs a real Linux
+# kernel with FUSE, hfsplus and rsync, so it runs here instead of on the
+# workstation.
 #
 # The result is published as split release assets (GitHub caps a single
 # asset at 2 GiB); concatenate the parts in order to recover the image.
+#
+# The iOS release is now parameterised: ipsw_url defaults to the verified
+# iPhone 11 / iOS 26.0 restore, while os_dmg / sysos_dmg / appos_dmg / size
+# are still PLACEHOLDERS that MUST be filled from the IPSW before this
+# workflow can run.  Do NOT invent an IPSW URL or a DMG member name.
+#
+# !! KNOWN BLOCKER FOR iOS 26 -- READ BEFORE DISPATCHING !!
+# In iOS 26 the OS and Cryptex1,SystemOS volumes ship as AEA-ENCRYPTED
+# containers, not plain DMGs.  Verified from the live 26.6.2 IPSW: both
+# `094-95954-090.dmg.aea` (OS) and `094-97202-092.dmg.aea` (SystemOS) begin
+# with the `AEA1` magic, while Cryptex1,AppOS (`094-96441-094.dmg`) does not.
+# The userland root lives in the OS volume, and the `apfs-fuse` extraction
+# this workflow performs CANNOT open an AEA container.  This workflow
+# therefore cannot produce an iOS 26 root until an AEA unwrap step is added
+# before the "Extract the OS volumes" step.  See research-ios26.md.
+# The 16.7.16 flow still works because its three DMGs are plain UDIF images.
 
 on:
   workflow_dispatch:
@@ -13,23 +30,31 @@ on:
       ipsw_url:
         description: "IPSW to pull the root components from"
         required: true
-        default: "https://updates.cdn-apple.com/2025FallFCS/fullrestores/122-77006/1158E502-D76D-4226-AA06-ED5E30CD1111/iPhone10,3,iPhone10,6_16.7.16_20H392_Restore.ipsw"
+        # [VERIFIED] iPhone 11 (iPhone12,1) iOS 26.0 (23A341) restore IPSW via
+        # ipsw.me API; sha256 65da7bf14d281fba63a11c61e09d4a3a4b865d49f7e628d97295633758a347bb.
+        # Not currently signed by Apple — treated as an archive source of files,
+        # not a restore target.
+        default: "https://updates.cdn-apple.com/2025FallFCS/fullrestores/093-40149/C2DDBCFD-327C-417B-A463-8F7820561E80/iPhone12,1_26.0_23A341_Restore.ipsw"
       os_dmg:
         description: "OS component"
         required: true
-        default: "087-86698-044.dmg"
+        # [UNVERIFIED] iOS 26 member IDs are build-specific and cannot be
+        # derived from the 16.7.16 values. Confirm with
+        #   unzip -l <ipsw> | grep -E '\.dmg$'
+        # before running this workflow.
+        default: "<PLACEHOLDER: iOS 26 OS.dmg member name>"
       sysos_dmg:
         description: "Cryptex1,SystemOS component"
         required: true
-        default: "087-86593-047.dmg"
+        default: "<PLACEHOLDER: iOS 26 SystemOS.dmg member name>"
       appos_dmg:
         description: "Cryptex1,AppOS component"
         required: true
-        default: "087-86715-047.dmg"
+        default: "<PLACEHOLDER: iOS 26 AppOS.dmg member name>"
       size:
         description: "HFS+ volume size"
         required: true
-        default: "16G"
+        default: "<PLACEHOLDER: iOS 26 HFS+ volume size, e.g. 16G>"
 
 permissions:
   contents: write
@@ -94,6 +119,22 @@ jobs:
           rm -f ipsw.zip
           ls -l dmg
           df -h /
+          # An AEA container is not a DMG: apfs-fuse will fail on it with a
+          # confusing error, and the failure would otherwise surface as a
+          # generic "apfs-fuse failed" fallback that retries a doomed rebuild.
+          # Detect the magic here and stop with an actionable message.  iOS 26
+          # ships OS and SystemOS this way; the 16.x DMGs are plain UDIF.
+          for f in dmg/*; do
+            magic=$(head -c 4 "$f" | od -An -tx1 | tr -d ' \n')
+            if [ "$magic" = "41454131" ]; then
+              echo "::error file=$f::$f is an AEA-encrypted container (AEA1 magic), not a plain DMG."
+              echo "The apfs-fuse extraction below cannot open it."
+              echo "An AEA unwrap step must run before this job for this iOS release."
+              echo "See research-ios26.md ('Lead independent confirmation of the AEA blocker')."
+              exit 1
+            fi
+            echo "$f: not AEA (magic=$magic)"
+          done
 
       # Fail here (2 minutes in) rather than after the hour-long copy when the
       # packaged apfs-fuse cannot read the IPSW's Apple Disk Images: retry with
@@ -159,8 +200,8 @@ jobs:
             "dmg/${{ inputs.os_dmg }}" \
             "dmg/${{ inputs.sysos_dmg }}" \
             "dmg/${{ inputs.appos_dmg }}" \
-            ios16-root.img "${{ inputs.size }}"
-          ls -l ios16-root.img
+            ios26-root.img "${{ inputs.size }}"
+          ls -l ios26-root.img
           df -h /
 
       - name: Apply bring-up tweaks
@@ -170,7 +211,7 @@ jobs:
           # data-volume skeleton the tweaks write into (mobile 501, as on iOS).
           sudo mkdir -p /mnt/iosroot
           sudo modprobe hfsplus || true
-          sudo mount -t hfsplus -o loop,force ios16-root.img /mnt/iosroot
+          sudo mount -t hfsplus -o loop,force ios26-root.img /mnt/iosroot
           for d in private/var/mobile private/var/mobile/Library \
                    private/var/mobile/Library/Preferences private/var/root; do
             sudo mkdir -p "/mnt/iosroot/$d"
@@ -185,14 +226,16 @@ jobs:
           # Seed the container the upstream bring-up image used by hand, so
           # mobileactivationd starts out Activated instead of blocking on the
           # activation check.
-          sudo python3 scripts/seed_activation.py /mnt/iosroot
+          sudo python3 scripts/seed_activation.py /mnt/iosroot \
+            --product-version "<PLACEHOLDER: iOS 26 ProductVersion>" \
+            --build-version "<PLACEHOLDER: iOS 26 BuildVersion>"
           echo "--- tweak results ---"
           sudo ls /mnt/iosroot/private/var/mobile/Library/Preferences
           sudo grep -c _PanicOnCrasX /mnt/iosroot/System/Library/xpc/launchd.plist || true
           sudo cat "/mnt/iosroot/private/var/containers/Data/System/D90C94C4-F94E-4FCF-8A28-A93BE3846D8E/Library/internal/data_ark.plist"
           sudo umount /mnt/iosroot
-          fsck.hfsplus -f -y ios16-root.img || true
-          fsck.hfsplus -f -n ios16-root.img || true
+          fsck.hfsplus -f -y ios26-root.img || true
+          fsck.hfsplus -f -n ios26-root.img || true
           rm -rf dmg
           df -h /
 
@@ -200,7 +243,7 @@ jobs:
         run: |
           set -e
           mkdir -p /tmp/chk
-          sudo mount -t hfsplus -o loop,force,ro ios16-root.img /tmp/chk
+          sudo mount -t hfsplus -o loop,force,ro ios26-root.img /tmp/chk
           echo "--- top level ---"
           ls /tmp/chk
           echo "--- key paths ---"
@@ -220,10 +263,10 @@ jobs:
       - name: Convert to Android sparse
         run: |
           set -e
-          python3 scripts/mksimg.py ios16-root.img -o ios16-root.simg
-          ls -l ios16-root.simg
-          rm -f ios16-root.img
-          sha256sum ios16-root.simg | tee ios16-root.simg.sha256
+          python3 scripts/mksimg.py ios26-root.img -o ios26-root.simg
+          ls -l ios26-root.simg
+          rm -f ios26-root.img
+          sha256sum ios26-root.simg | tee ios26-root.simg.sha256
           df -h /
 
       - name: Verify the published image
@@ -233,35 +276,37 @@ jobs:
           # that actually gets published -- the sparse image the phone will
           # be flashed with -- and it fails the build if the activation seed
           # did not make it into the bytes.
-          python3 scripts/verify_root.py ios16-root.simg
+          python3 scripts/verify_root.py ios26-root.simg \
+            --product-version "<PLACEHOLDER: iOS 26 ProductVersion>" \
+            --build-version "<PLACEHOLDER: iOS 26 BuildVersion>"
 
       - name: Split and publish release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -e
-          split -b 1900M -d -a 2 ios16-root.simg root-part.
+          split -b 1900M -d -a 2 ios26-root.simg root-part.
           ls -l root-part.*
           sha256sum root-part.* > root-parts.sha256
           cat root-parts.sha256
-          tag="iosroot-16.7.16-$(date +%Y%m%d-%H%M%S)"
+          tag="iosroot-<PLACEHOLDER: iOS 26 version, e.g. 26.0>-$(date +%Y%m%d-%H%M%S)"
           {
             echo "HFS+ iOS root for the SWEET kernel, built from ${{ inputs.ipsw_url }}"
             echo ""
             echo "Volume: ${{ inputs.size }} case-sensitive journaled HFS+ (label iOSRoot)"
             echo "Flash with:"
             echo '```'
-            echo 'cat root-part.* > ios16-root.simg'
-            echo 'fastboot flash userdata ios16-root.simg'
+            echo 'cat root-part.* > ios26-root.simg'
+            echo 'fastboot flash unixnu ios26-root.simg'
             echo '```'
             echo ""
-            echo "Sparse image sha256: see ios16-root.simg.sha256"
+            echo "Sparse image sha256: see ios26-root.simg.sha256"
           } > notes.md
           echo "RELEASE_TAG=$tag" >> "$GITHUB_ENV"
           gh release create "$tag" --title "$tag" --notes-file notes.md --repo "$GITHUB_REPOSITORY"
           # One asset at a time: a single failure then leaves the finished parts
           # published instead of losing the whole build.
-          for f in root-part.* ios16-root.simg.sha256 root-parts.sha256; do
+          for f in root-part.* ios26-root.simg.sha256 root-parts.sha256; do
             echo "uploading $f"
             gh release upload "$tag" "$f" --repo "$GITHUB_REPOSITORY"
           done

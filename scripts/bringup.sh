@@ -18,7 +18,7 @@
 # blocks it skips holding the previous root build -- including 47 blocks
 # inside the HFS+ catalog B-tree.  Dense means every block is written.
 #
-# The HFS+ volume goes to the very start of the userdata partition: the
+# The HFS+ volume goes to the very start of the unixnu partition: the
 # kernel mounts the partition itself as the root filesystem, and the
 # persistent console log lives in the last 4 MiB of the same partition.
 #
@@ -86,13 +86,13 @@ if [ "$FLASH" = "1" ]; then
   python3 "$ROOT/scripts/verify_root.py" "$WORK_DIR/ios16-root.simg"
 
   echo
-  echo "== flashing userdata, descending =="
+  echo "== flashing unixnu, descending =="
   for p in $(ls "$PIECES_DIR"/p*.simg | sort -r); do
     echo "-- $p"
-    "$FASTBOOT" flash userdata "$p"
+    "$FASTBOOT" flash unixnu "$p"
   done
   echo
-  echo "== userdata done =="
+  echo "== unixnu done =="
 else
   echo "== skipping the flash (--no-flash) =="
 fi

@@ -68,7 +68,14 @@ kernel_args = [
   "keepsyms=1",
   "-enable_kprintf_spam",
   "-noprogress",
+  # ufsroot= selects the GPT partition the SWEET kernel's bsd/dev/sweet_ufs.c
+  # finds BY NAME on the internal UFS and exposes as BSD disk ufsroot0 -- so
+  # nothing here may hardcode a partition index.  unixnu is the LAST populated
+  # entry (index [61]) and no existing partition was renumbered.
+  # Partition: unixnu, partGUID 66f93a3a-63ca-462e-ad71-e4a7838418fe,
+  # first LBA 28945664 .. last LBA 62500095 (16 GiB).
   "rd=ufsroot0",
+  "ufsroot=unixnu",
   "unentitled_ios_sim_launch=1",
   "ignition_level=1",
   "wdt_test=no_user_checkin",
@@ -91,6 +98,18 @@ unique_chip_id = "required"
 # gives XNU the full kernel-managed RAM range and reserves enough early I/O
 # page tables for the framebuffer.
 owned_memory_size = "0xc0000000"
+# Apple identity carried by the ADT (product type / model / chip-id / canvas /
+# base-ADT source). These mirror scripts/devices.py's `ios` dict for raphael
+# (iPhone 11 / N104AP, the first generation that runs iOS 26; iPhone XS
+# D321AP tops out at 18.7.11). Set them here to override per-release.
+# The IPSW URL and DeviceTree member are VERIFIED by the lead
+# (research-ios26.md); the member name is flagged [UNVERIFIED] there.
+ios_product_type = "N104AP"
+ios_model = "iPhone12,1"
+ios_chip_id = 0x8030
+ios_canvas = "828x1792"
+ios_display_scale = 2
+base_adt = "scripts/base-iphone12-1.adt"
 
 [bootimg.image]
 base = 0x0

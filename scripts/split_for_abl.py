@@ -15,7 +15,7 @@ How the offset is encoded
 leading CHUNK_TYPE_DONT_CARE chunk spanning every block before its own range.
 The bootloader seeks over it instead of writing zeros -- confirmed on raphael:
 a 413 MB piece whose don't-care prefix covered 11.27 GiB finished with
-`Writing 'userdata'  OKAY [ 0.002s]`, which is impossible if it had written
+`Writing 'unixnu'  OKAY [ 0.002s]`, which is impossible if it had written
 those zeros.
 
 Ordering
@@ -32,7 +32,7 @@ Usage
 
 Then, in the output directory:
 
-    for p in $(ls p*.simg | sort -r); do fastboot flash userdata "$p"; done
+    for p in $(ls p*.simg | sort -r); do fastboot flash unixnu "$p"; done
 
 `ORDER.txt` lists the pieces in ascending block order.
 """
@@ -146,7 +146,7 @@ def main():
         for name, sblk, eblk, size in rows:
             fh.write("%s %d %d %d\n" % (name, sblk, eblk, size))
     print("%d pieces, %.2f GiB total" % (len(rows), sum(r[3] for r in rows) / 2 ** 30))
-    print("flash with:  for p in $(ls p*.simg | sort -r); do fastboot flash userdata $p; done")
+    print("flash with:  for p in $(ls p*.simg | sort -r); do fastboot flash unixnu $p; done")
 
 
 if __name__ == "__main__":

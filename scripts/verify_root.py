@@ -12,7 +12,12 @@ reverse-engineering when the build server can simply mount the volume; what
 matters locally is that the image is a valid HFS+ volume of the expected
 size and that specific byte sequences are present.
 
-    verify_root.py IMAGE.simg
+    verify_root.py IMAGE.simg [--product-version 26.x] [--build-version 20Axxx]
+
+The activation seed it expects (ProductVersion / BuildVersion) must match
+exactly what scripts/seed_activation.py writes -- keep them in lockstep.
+Defaults are the iOS 26 values; pass --product-version / --build-version to
+check a different release's image.
 """
 import os
 import plistlib
@@ -26,17 +31,23 @@ FILE_HDR_SZ, CHUNK_HDR_SZ = 28, 12
 # The container the upstream bring-up image was seeded with by hand.
 CONTAINER_ID = "D90C94C4-F94E-4FCF-8A28-A93BE3846D8E"
 
-# The same dictionary seed_activation.py writes.  Apple's OS.dmg ships no
-# mobileactivationd system container, so this exact plist payload only exists
-# in a build that actually ran the seed.
-ARK = {
-    "-ActivationState": "Activated",
-    "-BrickState": False,
-    "-BuildVersion": "20H392",
-    "-ProductVersion": "16.7.16",
-    "-DataMigrationCompleted": True,
-    "-PreSydroDataMigrationCompleted": True,
-}
+# iOS 26 defaults: ProductVersion 26.0 / BuildVersion 23A341.  Must stay in
+# lockstep with scripts/seed_activation.py (verified by the lead via ipsw.me;
+# research-ios26.md).
+DEFAULT_PRODUCT_VERSION = "26.0"
+DEFAULT_BUILD_VERSION = "23A341"
+
+
+def ark(product_version, build_version):
+    return {
+        "-ActivationState": "Activated",
+        "-BrickState": False,
+        "-BuildVersion": build_version,
+        "-ProductVersion": product_version,
+        "-DataMigrationCompleted": True,
+        "-PreSydroDataMigrationCompleted": True,
+    }
+
 
 # Directory entry names live in the catalog as UTF-16BE.  Finding them proves
 # the catalog really is an iOS one.
@@ -52,11 +63,12 @@ CATALOG_NAMES = [
 ]
 
 
-def seed_plist_bytes():
+def seed_plist_bytes(product_version=DEFAULT_PRODUCT_VERSION,
+                     build_version=DEFAULT_BUILD_VERSION):
     """The exact bytes seed_activation.py writes into data_ark.plist."""
     import io
     buf = io.BytesIO()
-    plistlib.dump(ARK, buf, fmt=plistlib.FMT_XML)
+    plistlib.dump(ark(product_version, build_version), buf, fmt=plistlib.FMT_XML)
     return buf.getvalue()
 
 
@@ -77,7 +89,7 @@ class SparseImage:
         for _ in range(nch):
             self.f.seek(pos)
             ctype, _res, blocks, total = struct.unpack("<HHII",
-                                                      self.f.read(CHUNK_HDR_SZ))
+                                                       self.f.read(CHUNK_HDR_SZ))
             self.chunks.append((ctype, blocks, pos + CHUNK_HDR_SZ, total, block))
             block += blocks
             pos += total
@@ -125,9 +137,22 @@ class SparseImage:
 
 
 def main():
-    if len(sys.argv) != 2:
+    argv = sys.argv[1:]
+    product_version = DEFAULT_PRODUCT_VERSION
+    build_version = DEFAULT_BUILD_VERSION
+    i = 0
+    while i < len(argv):
+        arg = argv[i]
+        if arg in ("--product-version", "--pv") and i + 1 < len(argv):
+            product_version = argv[i + 1]; i += 2
+        elif arg in ("--build-version", "--bv") and i + 1 < len(argv):
+            build_version = argv[i + 1]; i += 2
+        else:
+            break
+    rest = argv[i:]
+    if len(rest) != 1:
         raise SystemExit(__doc__)
-    path = sys.argv[1]
+    path = rest[0]
     if not os.path.isfile(path):
         raise SystemExit("%s: no such file" % path)
 
@@ -165,7 +190,7 @@ def main():
 
     print()
     print("activation seed:")
-    seed = seed_plist_bytes()
+    seed = seed_plist_bytes(product_version, build_version)
     seed_ok = img.scan([seed])[seed]
     print("   %-40s %s (%d bytes)"
           % ("data_ark.plist payload",
