@@ -34,6 +34,17 @@ on:
         default: full
         type: choice
         options: [full, bootshim_upstream]
+      macos_runner:
+        description: >
+          Runner label for the XNU job. macos-14 is what ios-sweet uses, but
+          this account cannot schedule it ("configuration
+          'macos-14-arm64-us-default' is not supported"), so the label is an
+          input: try macos-15 / macos-latest without another commit. Keep the
+          Xcode this job picks (an Xcode 16 iig emits IORPC.kernelContent,
+          which xnu-8796 does not have) in mind when changing it.
+        required: false
+        default: macos-15
+        type: string
   push:
     branches: [main]
     paths:
@@ -45,8 +56,10 @@ permissions:
 
 jobs:
   kernel:
-    # XNU 8796 needs Xcode 15 (iig ABI) -> macos-14, like ios-sweet.
-    runs-on: macos-14
+    # XNU 8796 needs Xcode 15 (iig ABI) -> macos-14, like ios-sweet.  But this
+    # account cannot schedule macos-14 at all (see the macos_runner input), so
+    # the label comes from the caller and defaults to macos-15.
+    runs-on: ${{ inputs.macos_runner || 'macos-15' }}
     timeout-minutes: 240
     env:
       # Without MACOS_VERSION build.sh pops an interactive gum menu and dies
@@ -93,7 +106,17 @@ jobs:
           # build.sh only checks that xcodes exists (Xcode is preinstalled); stub it
           printf '#!/bin/sh\nexit 0\n' | sudo tee /usr/local/bin/xcodes >/dev/null
           sudo chmod +x /usr/local/bin/xcodes
-          XC=$(ls -d /Applications/Xcode_*.app | sort -V | head -1)
+          # xnu-8796's IORPC ABI is the one Xcode 15's iig emits.  Xcode 16's
+          # iig adds IORPC.kernelContent, which this xnu has no field for, so
+          # prefer the newest Xcode 15.* on the image and only fall back to the
+          # oldest install when there is none (what this step always did).
+          XC=$(ls -d /Applications/Xcode_15*.app 2>/dev/null | sort -V | tail -1)
+          if [ -z "$XC" ]; then
+            XC=$(ls -d /Applications/Xcode_*.app | sort -V | head -1)
+            echo "::warning::no Xcode 15 on this image; using $XC (its iig may emit a newer IORPC ABI)"
+          fi
+          echo "using $XC"
+          ls -d /Applications/Xcode_*.app
           echo "DEVELOPER_DIR=$XC/Contents/Developer" >> "$GITHUB_ENV"
           sudo xcode-select -s "$XC"
           xcodebuild -version

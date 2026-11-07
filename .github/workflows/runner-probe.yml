@@ -1,0 +1,29 @@
+name: runner-probe
+
+# One-off diagnostic. The kernel job was cancelled before it started with
+# "The configuration 'macos-14-arm64-us-default' is not supported", so the
+# account cannot schedule the macos-14 label this repo asks for. This runs the
+# same trivial step on every candidate label; the ones that actually start are
+# the labels that exist here.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-13, macos-14, macos-15, macos-latest, macos-14-large]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - name: Report the image
+        run: |
+          sw_vers
+          xcodebuild -version
+          ls -d /Applications/Xcode_*.app 2>/dev/null || true
+          echo "runner=${{ matrix.os }} ipc=$(uname -m)"
