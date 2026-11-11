@@ -1,0 +1,12 @@
+--- a/bsd/kern/bsd_init.c
++++ b/bsd/kern/bsd_init.c
+@@ -688,6 +688,9 @@
+ 	bsd_init_kprintf("calling bsd_bufferinit\n");
+ 	bsd_bufferinit();
+ 
++	extern void raphael_native_pmgr_run(void);
++	raphael_native_pmgr_run();
++
+ 	/*
+ 	 * Initialize the calendar.
+ 	 */

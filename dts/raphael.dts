@@ -1,31 +1,96 @@
-/dts-v1/;
 // SPDX-License-Identifier: BSD-2-Clause-Patent
-/*
- * raphael (SM8150) device tree for UniXNU
- * Redmi K20 Pro / Mi 9T Pro
- */
-
+// Inspection fixture. Not an Android firmware DTB or a finished XNU description.
+// Live FDT SHA256: 7b24eee80e40f2444153b8effacd5c476fd394fcff62aa5e807d5a161c9384f5
+/dts-v1/;
 /include/ "sm8150.dtsi"
-
 / {
-    model = "Redmi K20 Pro";
-    compatible = "xiaomi,raphael", "qcom,sm8150";
-
-    chosen {
-        bootargs = "debug=0x14e keepsyms=1 serial=3";
+  model = "RAPHAEL";
+  compatible = "qcom,sm8150-cdp", "qcom,sm8150", "qcom,cdp";
+  qcom,board-id = <0x28 0x0>;
+  qcom,msm-id = <0x153 0x20000>;
+  memory@80000000 {
+    device_type = "memory";
+    reg = <0x0 0x80000000 0x0 0x3bb00000 0x1 0x80000000 0x1 0x0 0x0 0xc0000000 0x0 0xc0000000>;
+  };
+  reserved-memory {
+    #address-cells = <2>;
+    #size-cells = <2>;
+    ranges;
+    hyp_mem@85700000 {
+      reg = <0x0 0x85700000 0x0 0x600000>;
+      no-map;
     };
-
-    memory@80000000 {
-        device_type = "memory";
-        reg = <0x0 0x80000000 0x0 0x100000000>; /* 4 GiB */
+    xbl_aop_mem@85e00000 {
+      reg = <0x0 0x85e00000 0x0 0x140000>;
+      no-map;
     };
+    smem@86000000 {
+      reg = <0x0 0x86000000 0x0 0x200000>;
+      no-map;
+    };
+    removed_regions@86200000 {
+      reg = <0x0 0x86200000 0x0 0x5500000>;
+      no-map;
+    };
+    camera_region@8b700000 {
+      reg = <0x0 0x8b700000 0x0 0x500000>;
+      no-map;
+    };
+    pil_wlan_fw_region@8bc00000 {
+      reg = <0x0 0x8bc00000 0x0 0x180000>;
+      no-map;
+    };
+    pil_npu_region@8bd80000 {
+      reg = <0x0 0x8bd80000 0x0 0x80000>;
+      no-map;
+    };
+    pil_adsp_region@8be00000 {
+      reg = <0x0 0x8be00000 0x0 0x2200000>;
+      no-map;
+    };
+    modem_region@8e000000 {
+      reg = <0x0 0x8e000000 0x0 0x9600000>;
+      no-map;
+    };
+    pil_video_region@97600000 {
+      reg = <0x0 0x97600000 0x0 0x500000>;
+      no-map;
+    };
+    pil_slpi_region@97b00000 {
+      reg = <0x0 0x97b00000 0x0 0x1400000>;
+      no-map;
+    };
+    pil_ipa_fw_region@98f00000 {
+      reg = <0x0 0x98f00000 0x0 0x10000>;
+      no-map;
+    };
+    pil_ipa_gsi_region@98f10000 {
+      reg = <0x0 0x98f10000 0x0 0x5000>;
+      no-map;
+    };
+    pil_gpu_region@98f15000 {
+      reg = <0x0 0x98f15000 0x0 0x2000>;
+      no-map;
+    };
+    pil_spss_region@99000000 {
+      reg = <0x0 0x99000000 0x0 0x100000>;
+      no-map;
+    };
+    cdsp_regions@99100000 {
+      reg = <0x0 0x99100000 0x0 0x1400000>;
+      no-map;
+    };
+    qseecom_region@9e400000 {
+      reg = <0x0 0x9e400000 0x0 0x1400000>;
+      no-map;
+    };
+    cdsp_sec_regions@a4c00000 {
+      reg = <0x0 0xa4c00000 0x0 0x3c00000>;
+      no-map;
+    };
+    cont_splash_region@9c000000 {
+      reg = <0x0 0x9c000000 0x0 0x2400000>;
+    };
+  };
+  // Linux dynamically placed pools are listed in the JSON evidence, not allocated here.
 };
-
-&cpu0 { status = "okay"; };
-&cpu1 { status = "okay"; };
-&cpu2 { status = "okay"; };
-&cpu3 { status = "okay"; };
-&cpu4 { status = "okay"; };
-&cpu5 { status = "okay"; };
-&cpu6 { status = "okay"; };
-&cpu7 { status = "okay"; };

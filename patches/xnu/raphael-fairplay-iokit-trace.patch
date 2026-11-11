@@ -1,0 +1,128 @@
+--- a/iokit/Kernel/IOUserClient.cpp
++++ b/iokit/Kernel/IOUserClient.cpp
+@@ -2555,8 +2555,26 @@
+ 	*retainCount = object->getRetainCount();
+ 	return kIOReturnSuccess;
+ }
+ 
++// Board diagnostic only: observe original fairplay IOKit results.
++// No additional matching, iterator advancement, client opening, or reply occurs.
++static void
++raphael_fairplay_iokit_trace(const char *phase, OSDictionary *matching,
++    kern_return_t status, OSObject *object, uint32_t type = 0)
++{
++    char name[32] = {};
++    proc_selfname(name, sizeof(name));
++    if (strncmp(name, "fairplay", 8)) return;
++    OSString *provider = matching ? OSDynamicCast(OSString, matching->getObject("IOProviderClass")) : NULL;
++    OSString *nameMatch = matching ? OSDynamicCast(OSString, matching->getObject("IONameMatch")) : NULL;
++    printf("RPH FAIRPLAY IOKIT pid=%d phase=%s status=%x provider=%s name=%s class=%s type=%u\n",
++        proc_selfpid(), phase, (unsigned)status,
++        provider ? provider->getCStringNoCopy() : "<none>",
++        nameMatch ? nameMatch->getCStringNoCopy() : "<none>",
++        object ? object->getMetaClass()->getClassName() : "<none>", type);
++}
++
+ /* Routine io_iterator_next */
+ kern_return_t
+ is_io_iterator_next(
+ 	io_object_t iterator,
+@@ -2574,8 +2592,9 @@
+ 		if (obj) {
+ 			obj->retain();
+ 		}
+ 	} else {
++		raphael_fairplay_iokit_trace("iterator_invalid", NULL, kIOReturnBadArgument, NULL);
+ 		return kIOReturnBadArgument;
+ 	}
+ 
+ 	if (obj) {
+@@ -2584,8 +2603,9 @@
+ 	} else {
+ 		ret = kIOReturnNoDevice;
+ 	}
+ 
++	raphael_fairplay_iokit_trace("iterator_next", NULL, ret, obj);
+ 	return ret;
+ }
+ 
+ /* Routine io_iterator_reset */
+@@ -2705,8 +2725,9 @@
+ 	OSObject *          obj;
+ 	OSDictionary *      dict;
+ 
+ 	if (main_port != main_device_port) {
++		raphael_fairplay_iokit_trace("matching_services_denied", NULL, kIOReturnNotPrivileged, NULL);
+ 		return kIOReturnNotPrivileged;
+ 	}
+ 
+ 	assert(matching_size);
+@@ -2715,10 +2736,12 @@
+ 	if ((dict = OSDynamicCast( OSDictionary, obj))) {
+ 		IOTaskRegistryCompatibilityMatching(current_task(), dict);
+ 		*existing = IOUserIterator::withIterator(IOService::getMatchingServices( dict ));
+ 		kr = kIOReturnSuccess;
++		raphael_fairplay_iokit_trace("matching_services", dict, kr, *existing);
+ 	} else {
+ 		kr = kIOReturnBadArgument;
++		raphael_fairplay_iokit_trace("matching_services_invalid", NULL, kr, NULL);
+ 	}
+ 
+ 	if (obj) {
+ 		obj->release();
+@@ -2788,8 +2811,9 @@
+ 	OSObject *          obj;
+ 	OSDictionary *      dict;
+ 
+ 	if (main_port != main_device_port) {
++		raphael_fairplay_iokit_trace("matching_service_denied", NULL, kIOReturnNotPrivileged, NULL);
+ 		return kIOReturnNotPrivileged;
+ 	}
+ 
+ 	assert(matching_size);
+@@ -2798,10 +2822,12 @@
+ 	if ((dict = OSDynamicCast( OSDictionary, obj))) {
+ 		IOTaskRegistryCompatibilityMatching(current_task(), dict);
+ 		*service = IOService::copyMatchingService( dict );
+ 		kr = *service ? kIOReturnSuccess : kIOReturnNotFound;
++		raphael_fairplay_iokit_trace("matching_service", dict, kr, *service);
+ 	} else {
+ 		kr = kIOReturnBadArgument;
++		raphael_fairplay_iokit_trace("matching_service_invalid", NULL, kr, NULL);
+ 	}
+ 
+ 	if (obj) {
+ 		obj->release();
+@@ -4328,7 +4354,7 @@
+-kern_return_t
+-is_io_service_open_extended(
++static kern_return_t
++raphael_original_io_service_open_extended(
+ 	io_object_t _service,
+ 	task_t owningTask,
+ 	uint32_t connect_type,
+ 	NDR_record_t ndr,
+ 	io_buf_ptr_t properties,
+@@ -4559,8 +4585,22 @@
+ 
+ 	return err;
+ }
+ 
++kern_return_t
++is_io_service_open_extended(
++    io_object_t service, task_t owningTask, uint32_t connect_type,
++    NDR_record_t ndr, io_buf_ptr_t properties,
++    mach_msg_type_number_t propertiesCnt, kern_return_t *result,
++    io_object_t *connection)
++{
++    kern_return_t kr = raphael_original_io_service_open_extended(service,
++        owningTask, connect_type, ndr, properties, propertiesCnt, result, connection);
++    raphael_fairplay_iokit_trace(kr == KERN_SUCCESS ? "open_result" : "open_transport",
++        NULL, kr == KERN_SUCCESS ? *result : kr, service, connect_type);
++    return kr;
++}
++
+ /* Routine io_service_close */
+ kern_return_t
+ is_io_service_close(
+ 	io_connect_t connection )

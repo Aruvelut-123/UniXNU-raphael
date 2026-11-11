@@ -1,0 +1,52 @@
+--- a/bsd/kern/bsd_init.c
++++ b/bsd/kern/bsd_init.c
+@@ -567,7 +567,9 @@
+ volatile uint64_t raphael_native_root_record[16];
+ volatile uint32_t raphael_native_root_stage;
+ volatile uint32_t raphael_native_root_limit = 3600;
+-volatile uint32_t raphael_native_watchdog_method_checkpoint = 1;
++volatile uint32_t raphael_native_watchdog_method_checkpoint = 4;
++volatile uint32_t raphael_native_service_window_seconds = 5;
++volatile uint64_t raphael_native_service_window_record[8];
+ volatile uint64_t raphael_native_user_record[16];
+ volatile uint32_t raphael_native_init_stage;
+ volatile int raphael_native_init_exec_error;
+@@ -585,16 +587,34 @@
+ 	extern void raphael_native_watchdog_end(void);
+ 	extern int raphael_native_watchdog_observer_expired(void);
+ 	extern volatile uint64_t raphael_watchdog_method_record[32];
++	extern volatile uint64_t raphael_watchdog_client_record[16];
+ 	raphael_native_watchdog_begin();
+ 	const unsigned limit = raphael_native_root_limit;
+ 	raphael_native_root_record[7] = limit;
+ 	for (unsigned i = 0; i < limit; ++i) {
+ 		IOSleep(100);
+-		/* Stop at the first completed original daemon method, before another pet.
+-		 * The existing absolute budget, hardware checks and handback still apply. */
++		/* Explicit short service observation after the first completed method.
++		 * This uses the same physical counter as the unchanged watchdog budget. */
+ 		if (i >= 9 && __atomic_load_n(&raphael_watchdog_method_record[1], __ATOMIC_ACQUIRE) == 2) {
+-			raphael_native_root_record[2] = i + 1;
+-			break;
++			uint64_t now, frequency;
++			__asm__ volatile("isb\n mrs %0,cntpct_el0" : "=r"(now));
++			volatile uint64_t *window = raphael_native_service_window_record;
++			if (!window[0]) {
++				__asm__ volatile("mrs %0,cntfrq_el0" : "=r"(frequency));
++				if (!frequency || frequency > 1000000000ULL || raphael_native_service_window_seconds != 5)
++					panic("Raphael service window: invalid counter contract");
++				window[1] = 1; window[2] = frequency; window[3] = now;
++				window[5] = frequency * raphael_native_service_window_seconds;
++				window[6] = __atomic_load_n(&raphael_watchdog_method_record[2], __ATOMIC_ACQUIRE);
++				window[7] = __atomic_load_n(&raphael_watchdog_client_record[4], __ATOMIC_ACQUIRE);
++				window[0] = 0x315753485052ULL;
++			}
++			if (now - window[3] >= window[5]) {
++				raphael_native_root_record[2] = i + 1;
++				if (raphael_native_watchdog_observer_expired()) break;
++				window[4] = now;
++				break;
++			}
+ 		}
+ 		raphael_native_watchdog_pet();
+ 		raphael_native_root_record[2] = i + 1;

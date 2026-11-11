@@ -1,0 +1,18 @@
+--- a/bsd/kern/bsd_init.c
++++ b/bsd/kern/bsd_init.c
+@@ -584,6 +584,7 @@
+ 	extern void raphael_native_watchdog_pet(void);
+ 	extern void raphael_native_watchdog_end(void);
+ 	extern int raphael_native_watchdog_observer_expired(void);
++	extern int raphael_ufs_diagnostic_write_once(void);
+ 	raphael_native_watchdog_begin();
+ 	const unsigned limit = raphael_native_root_limit;
+ 	raphael_native_root_record[7] = limit;
+@@ -591,6 +592,7 @@
+ 		IOSleep(100);
+ 		raphael_native_watchdog_pet();
+ 		raphael_native_root_record[2] = i + 1;
++		if (raphael_ufs_diagnostic_write_once() && i >= 9) break;
+ 		if (raphael_native_watchdog_observer_expired()) break;
+ #if defined(XNU_OWNER_ROOT_AUDIT) && XNU_OWNER_ROOT_AUDIT
+ 		extern volatile int native_owner_root_accepted;

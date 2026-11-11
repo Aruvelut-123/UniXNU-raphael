@@ -1,0 +1,105 @@
+--- a/bsd/kern/bsd_init.c
++++ b/bsd/kern/bsd_init.c
+@@ -566,11 +566,15 @@
+ /* Explicit bounded root observer. It never substitutes for BSD root mounting. */
+ volatile uint64_t raphael_native_root_record[16];
+ volatile uint32_t raphael_native_root_stage;
++volatile uint64_t raphael_native_user_record[16];
++volatile uint32_t raphael_native_init_stage;
++volatile int raphael_native_init_exec_error;
+ void raphael_native_root_observer(void *parameter, wait_result_t result)
+ {
+ 	(void)parameter; (void)result;
+ 	extern void raphael_native_storage_quiesce(void);
+ 	extern void raphael_native_root_checkpoint(void);
++	raphael_native_user_record[0] = 0x3130525355485052ULL;
+ 	raphael_native_root_record[0] = 0x31544f4f52485052ULL;
+ 	raphael_native_root_record[1] = 1;
+ 	raphael_native_root_record[7] = 50;
+@@ -581,7 +585,7 @@
+ 		extern volatile int native_owner_root_accepted;
+ 		if (native_owner_root_accepted == 1) {
+ 			raphael_native_root_record[3] = 1;
+-			break;
++			if (raphael_native_user_record[1] >= 4) break;
+ 		}
+ #endif
+ 	}
+--- a/bsd/kern/kern_exec.c
++++ b/bsd/kern/kern_exec.c
+@@ -8050,6 +8050,11 @@
+ }
+ #endif
+ 
++extern uint64_t raphael_native_diag_config[];
++extern volatile uint64_t raphael_native_user_record[];
++extern volatile uint32_t raphael_native_init_stage;
++extern volatile int raphael_native_init_exec_error;
++
+ static int
+ load_init_program_at_path(proc_t p, user_addr_t scratch_addr, const char* path, user_addr_t envp)
+ {
+@@ -8133,7 +8138,16 @@
+ 	 */
+ 	set_security_token(p, proc_ucred_unsafe(p));
+ 
+-	return execve(p, &init_exec_args, retval);
++	if (raphael_native_diag_config[7] == 20) {
++		raphael_native_init_stage = 3;
++		raphael_native_user_record[10]++;
++	}
++	error = execve(p, &init_exec_args, retval);
++	if (raphael_native_diag_config[7] == 20) {
++		raphael_native_init_exec_error = error;
++		if (!error) raphael_native_init_stage = 4;
++	}
++	return error;
+ }
+ 
+ static const char * init_programs[] = {
+@@ -8178,6 +8192,7 @@
+ void
+ load_init_program(proc_t p)
+ {
++	if (raphael_native_diag_config[7] == 20) raphael_native_init_stage = 1;
+ 	uint32_t i;
+ 	int error;
+ 	vm_map_t map = current_map();
+@@ -8189,6 +8204,7 @@
+ #if defined(XNU_OWNER_CACHE_MOUNT) && XNU_OWNER_CACHE_MOUNT
+ 	int cache_error = native_owner_cache_prepare(p, (user_addr_t)scratch_addr, &init_envp);
+ 	if (cache_error) panic("offline owner SystemOS mount failed: %d", cache_error);
++	if (raphael_native_diag_config[7] == 20) raphael_native_init_stage = 2;
+ #endif
+ #if defined(XNU_OWNER_DATA_MOUNT) && XNU_OWNER_DATA_MOUNT
+ 	int data_error = native_owner_data_prepare(p, (user_addr_t)scratch_addr);
+--- a/bsd/dev/arm/systemcalls.c
++++ b/bsd/dev/arm/systemcalls.c
+@@ -101,6 +101,27 @@
+ 	uthread_reset_proc_refcount(uthread);
+ 
+ 	code = arm_get_syscall_number(state);
++	/* Observe original PID1 EL0 entries without changing the syscall path. */
++	extern uint64_t raphael_native_diag_config[];
++	extern volatile uint64_t raphael_native_user_record[];
++	if (raphael_native_diag_config[7] == 20 && proc_pid(proc) == 1 && is_saved_state64(state)) {
++		arm_saved_state64_t *user = saved_state64(state);
++		if ((user->cpsr & 15) == 0) {
++			if (!raphael_native_user_record[1]) {
++				raphael_native_user_record[3] = user->pc;
++				raphael_native_user_record[4] = user->cpsr;
++				raphael_native_user_record[5] = proc_pid(proc);
++				raphael_native_user_record[6] = code;
++				char *name = (char *)&raphael_native_user_record[12];
++				for (unsigned i = 0; i < sizeof(proc->p_comm) && i < 31 && proc->p_comm[i]; ++i) name[i] = proc->p_comm[i];
++			}
++			raphael_native_user_record[2] = code;
++			raphael_native_user_record[7] = user->pc;
++			raphael_native_user_record[8] = user->x[16];
++			raphael_native_user_record[1]++;
++		}
++	}
++
+ 
+ #define unix_syscall_kprintf(x...)      /* kprintf("unix_syscall: " x) */
+ 

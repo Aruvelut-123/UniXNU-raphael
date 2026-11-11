@@ -1,0 +1,5 @@
+# Compile-only OS selection for xnu-10063.141.1, from fixed upstream OS series.
+# Optional zzz-boot-progress.patch assumes an unrelated board PMGR hunk.
+# CONFIG_XNU_BOOT_PROGRESS=n; omit it rather than adding another board platform.
+component:XnuPrelink/patches/xnu-10063.141.1-security-init.patch
+component:XnuPrelink/patches/xnu-10063.141.1-sparse-index.patch

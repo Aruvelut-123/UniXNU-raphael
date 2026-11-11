@@ -1,0 +1,2 @@
+# Explicit private one-block write diagnostic, after native-diagnostic.series.
+raphael-native-ufs-write.patch

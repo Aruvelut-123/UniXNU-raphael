@@ -1,0 +1,3 @@
+# Selected only by the explicit handset-storage profile.
+raphael-ufs-controller.patch
+raphael-pmgr-compat.patch

@@ -1,0 +1,15 @@
+--- a/iokit/KernelConfigTables.cpp
++++ b/iokit/KernelConfigTables.cpp
+@@ -61,6 +61,12 @@
+     "     'IOProviderClass' = IOService;"
+     "     'IOExclaveProxy'  = 1:32;"
+     "   }"
++    "   ,{"
++    "     'IOClass'         = RaphaelUfsController;"
++    "     'IOProviderClass' = IOPlatformDevice;"
++    "     'IONameMatch'     = 'unixnu,raphael-ufs-ro';"
++    "     'IOProbeScore'    = 1000:32;"
++    "   }"
+ #if defined(XNU_NATIVE_AES) && XNU_NATIVE_AES
+     "   ,{"
+     "     'IOClass'         = NativeAES;"

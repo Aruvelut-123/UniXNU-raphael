@@ -1,0 +1,31 @@
+--- a/bsd/kern/bsd_init.c
++++ b/bsd/kern/bsd_init.c
+@@ -566,7 +566,8 @@
+ /* Explicit bounded root observer. It never substitutes for BSD root mounting. */
+ volatile uint64_t raphael_native_root_record[16];
+ volatile uint32_t raphael_native_root_stage;
+-volatile uint32_t raphael_native_root_limit = 1200;
++volatile uint32_t raphael_native_root_limit = 3600;
++volatile uint32_t raphael_native_watchdog_method_checkpoint = 1;
+ volatile uint64_t raphael_native_user_record[16];
+ volatile uint32_t raphael_native_init_stage;
+ volatile int raphael_native_init_exec_error;
+@@ -584,6 +585,7 @@
+ 	extern void raphael_native_watchdog_pet(void);
+ 	extern void raphael_native_watchdog_end(void);
+ 	extern int raphael_native_watchdog_observer_expired(void);
++	extern volatile uint64_t raphael_watchdog_method_record[32];
+ 	raphael_native_watchdog_begin();
+ 	const unsigned limit = raphael_native_root_limit;
+ 	raphael_native_root_record[7] = limit;
+@@ -591,4 +593,10 @@
+ 		IOSleep(100);
++		/* Stop at the first completed original daemon method, before another pet.
++		 * The existing absolute budget, hardware checks and handback still apply. */
++		if (i >= 9 && __atomic_load_n(&raphael_watchdog_method_record[1], __ATOMIC_ACQUIRE) == 2) {
++			raphael_native_root_record[2] = i + 1;
++			break;
++		}
+ 		raphael_native_watchdog_pet();
+ 		raphael_native_root_record[2] = i + 1;
+ 		if (raphael_native_watchdog_observer_expired()) break;

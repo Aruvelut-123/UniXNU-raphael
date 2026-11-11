@@ -1,0 +1,79 @@
+--- a/NativeAES.cpp
++++ b/NativeAES.cpp
+@@ -9,6 +9,7 @@
+ #pragma clang diagnostic pop
+ #include <corecrypto/cc.h>
+ #include <kern/task.h>
++#include <sys/proc.h>
+ 
+ extern "C" {
+ volatile uint32_t native_aes_kat_status = 0;
+@@ -145,31 +146,49 @@
+   return true;
+ }
+ 
++// Scoped diagnostic: retain every original AES return and callback.
++static IOReturn
++raphael_fairplay_aes_result(const char *phase, IOReturn status,
++    unsigned long long bytes, IOAESIV *iv, IOAESOperation operation,
++    IOAESKeyData *key, unsigned long long inputOffset,
++    unsigned long long outputOffset)
++{
++  char name[32] = {};
++  proc_selfname(name, sizeof(name));
++  if (!strncmp(name, "fairplay", 8))
++    printf("RPH FAIRPLAY AES pid=%d phase=%s status=%x bytes=%llu iv=%u key=%u bits=%u selector=%u operation=%u input_offset=%llu output_offset=%llu\n",
++      proc_selfpid(), phase, (unsigned)status, bytes, unsigned(iv != nullptr),
++      unsigned(key != nullptr), key ? key->bits : 0, key ? key->selector : 0,
++      unsigned(operation), inputOffset, outputOffset);
++  return status;
++}
++
+ IOReturn NativeAES::performAES(IOMemoryDescriptor *input, IOMemoryDescriptor *output,
+                               unsigned long long bytes, IOAESIV *iv, IOAESOperation operation,
+                               IOAESKeyData *key, unsigned long long inputOffset,
+                               unsigned long long outputOffset, IOAESCompletion callback, void *refcon)
+ {
++  raphael_fairplay_aes_result("enter", kIOReturnSuccess, bytes, iv, operation, key, inputOffset, outputOffset);
+   if (!input || !output || !key || !iv || !bytes || (bytes & 15) ||
+-      (key->bits != 128 && key->bits != 192 && key->bits != 256)) return kIOReturnBadArgument;
++      (key->bits != 128 && key->bits != 192 && key->bits != 256)) return raphael_fairplay_aes_result("argument", kIOReturnBadArgument, bytes, iv, operation, key, inputOffset, outputOffset);
+   if (key->selector || (operation != IOAESEncrypt && operation != IOAESDecrypt)) {
+     __atomic_fetch_add(&native_aes_unsupported_key, 1, __ATOMIC_RELAXED);
+-    return kIOReturnUnsupported;
++    return raphael_fairplay_aes_result("unsupported", kIOReturnUnsupported, bytes, iv, operation, key, inputOffset, outputOffset);
+   }
+   if (inputOffset > input->getLength() || bytes > input->getLength() - inputOffset ||
+-      outputOffset > output->getLength() || bytes > output->getLength() - outputOffset) return kIOReturnBadArgument;
++      outputOffset > output->getLength() || bytes > output->getLength() - outputOffset) return raphael_fairplay_aes_result("range", kIOReturnBadArgument, bytes, iv, operation, key, inputOffset, outputOffset);
+   unsigned char *buffer = static_cast<unsigned char *>(IOMalloc(4096));
+-  if (!buffer) return kIOReturnNoMemory;
++  if (!buffer) return raphael_fairplay_aes_result("allocation", kIOReturnNoMemory, bytes, iv, operation, key, inputOffset, outputOffset);
+   IOReturn result = input->prepare();
+   if (result) {
+     IOFree(buffer, 4096);
+-    return result;
++    return raphael_fairplay_aes_result("input_prepare", result, bytes, iv, operation, key, inputOffset, outputOffset);
+   }
+   result = output->prepare();
+   if (result) {
+     input->complete();
+     IOFree(buffer, 4096);
+-    return result;
++    return raphael_fairplay_aes_result("output_prepare", result, bytes, iv, operation, key, inputOffset, outputOffset);
+   }
+   unsigned char chaining[16];
+   memcpy(chaining, iv->bytes, 16);
+@@ -194,9 +213,9 @@
+   input->complete();
+   if (callback) {
+     callback(refcon, result);
+-    return kIOReturnSuccess;
+-  }
+-  return result;
++    return raphael_fairplay_aes_result("callback", kIOReturnSuccess, bytes, iv, operation, key, inputOffset, outputOffset);
++  }
++  return raphael_fairplay_aes_result("complete", result, bytes, iv, operation, key, inputOffset, outputOffset);
+ }
+ 
+ IOReturn NativeAES::performAES(void *input, void *output, task_t task, unsigned long long bytes,

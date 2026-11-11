@@ -1,0 +1,137 @@
+--- a/osfmk/arm64/sleh.c
++++ b/osfmk/arm64/sleh.c
+@@ -622,6 +622,37 @@
+ 	return fault_code == FSC_SYNC_PARITY;
+ }
+ 
++/* Explicit PID1 copyout observer; original exception/VM handling is preserved. */
++extern uint64_t raphael_native_diag_config[];
++extern volatile uint64_t raphael_native_user_record[];
++extern volatile uint64_t raphael_native_copy_record[];
++volatile uint64_t raphael_native_sync_record[144];
++volatile uint64_t raphael_native_vm_record[32];
++static bool raphael_native_copy_observing(thread_t thread)
++{
++	return raphael_native_diag_config[7] == 20 &&
++	       (uintptr_t)thread == raphael_native_user_record[9] &&
++	       raphael_native_copy_record[1] == 1;
++}
++static void raphael_native_sync_capture(arm_saved_state_t *state, uint32_t esr, vm_offset_t far)
++{
++	if (!raphael_native_copy_observing(current_thread()) || !is_saved_state64(state)) return;
++	arm_saved_state64_t *saved = saved_state64(state);
++	uint64_t count = raphael_native_sync_record[1];
++	volatile uint64_t *out = &raphael_native_sync_record[16 + (count < 3 ? count : 3) * 32];
++	out[0] = count + 1;
++	out[1] = esr; out[2] = far; out[3] = saved->pc;
++	out[4] = saved->lr; out[5] = saved->sp; out[6] = saved->cpsr;
++	__asm__ volatile("mrs %0, ttbr0_el1" : "=r"(out[7]));
++	__asm__ volatile("mrs %0, ttbr1_el1" : "=r"(out[8]));
++	__asm__ volatile("mrs %0, tcr_el1" : "=r"(out[9]));
++	__asm__ volatile("mrs %0, sctlr_el1" : "=r"(out[10]));
++	for (unsigned i = 0; i < 6; ++i) out[11+i] = saved->x[i];
++	out[17] = saved->x[16]; out[18] = saved->x[17]; out[19] = saved->x[18];
++	raphael_native_sync_record[0] = 0x31434e5953485052ULL;
++	raphael_native_sync_record[1] = count + 1;
++}
++
+ void
+ sleh_synchronous(arm_context_t *context, uint32_t esr, vm_offset_t far, __unused bool did_initiate_panic_lockdown)
+ {
+@@ -639,6 +670,7 @@
+ #endif /* CONFIG_XNUPOST */
+ 
+ 	ASSERT_CONTEXT_SANITY(context);
++	raphael_native_sync_capture(state, esr, far);
+ 
+ 	task_vtimer_check(thread);
+ 
+@@ -1762,6 +1794,18 @@
+ {
+ 	thread_t thread = current_thread();
+ 	struct copyio_recovery_entry *recover = find_copyio_recovery_entry(state);
++	bool raphael_observe = raphael_native_copy_observing(thread);
++	if (raphael_observe) {
++		raphael_native_vm_record[0] = 0x314d56485052ULL;
++		raphael_native_vm_record[1]++;
++		raphael_native_vm_record[2] = 1;
++		raphael_native_vm_record[3] = fault_code;
++		raphael_native_vm_record[4] = fault_type;
++		raphael_native_vm_record[5] = fault_addr;
++		raphael_native_vm_record[6] = (uintptr_t)recover;
++		raphael_native_vm_record[10] = ~0ULL;
++		raphael_native_vm_record[11] = ~0ULL;
++	}
+ 
+ #ifndef CONFIG_XNUPOST
+ 	(void)expected_fault_handler;
+@@ -1847,11 +1891,22 @@
+ 			panic_with_thread_kernel_state("Unexpected fault in kernel static region\n", state);
+ 		}
+ 
++		if (raphael_observe) {
++			raphael_native_vm_record[7] = (uintptr_t)map;
++			raphael_native_vm_record[8] = (uintptr_t)map->pmap;
++			raphael_native_vm_record[9] = map->pmap->ttep;
++			raphael_native_vm_record[2] = 2;
++		}
+ 		/* check to see if it is just a pmap ref/modify fault */
+ 		if (!is_translation_fault(fault_code)) {
++			if (raphael_observe) raphael_native_vm_record[2] = 3;
+ 			result = arm_fast_fault(map->pmap,
+ 			    fault_addr,
+ 			    fault_type, (fault_code == FSC_ACCESS_FLAG_FAULT_L3), FALSE);
++			if (raphael_observe) {
++				raphael_native_vm_record[11] = result;
++				raphael_native_vm_record[2] = 4;
++			}
+ 			if (result == KERN_SUCCESS) {
+ 				return;
+ 			}
+@@ -1861,9 +1916,16 @@
+ 			/*
+ 			 *  We have to "fault" the page in.
+ 			 */
++			if (raphael_observe) raphael_native_vm_record[2] = 5;
+ 			result = vm_fault(map, fault_addr, fault_type,
+ 			    /* change_wiring */ FALSE, VM_KERN_MEMORY_NONE, interruptible,
+ 			    /* caller_pmap */ NULL, /* caller_pmap_addr */ 0);
++			if (raphael_observe) {
++				raphael_native_vm_record[10] = result;
++				__asm__ volatile("mrs %0, ttbr0_el1" : "=r"(raphael_native_vm_record[12]));
++				__asm__ volatile("mrs %0, tcr_el1" : "=r"(raphael_native_vm_record[13]));
++				raphael_native_vm_record[2] = 6;
++			}
+ 		}
+ 
+ 		if (result == KERN_SUCCESS) {
+--- a/osfmk/kern/startup.c
++++ b/osfmk/kern/startup.c
+@@ -424,6 +424,7 @@
+ {
+ 	thread_t target = (thread_t)address;
+ 	if (!target || target == current_thread()) return;
++	disable_preemption();
+ 	volatile uint64_t *out = raphael_native_init_stack;
+ 	out[0] = 0x314b5453485052ULL;
+ 	out[1] = address;
+@@ -432,7 +433,10 @@
+ 	out[4] = (uintptr_t)target->continuation;
+ 	out[5] = target->kernel_stack;
+ 	out[6] = kernel_stack_size;
+-	if (!target->kernel_stack || kernel_stack_size < 4096 || kernel_stack_size > 65536) return;
++	if (!target->kernel_stack || kernel_stack_size < 4096 || kernel_stack_size > 65536) {
++		enable_preemption();
++		return;
++	}
+ 	arm_kernel_saved_state_t *saved = &thread_get_kernel_state(target)->machine.ss;
+ 	out[7] = saved->sp;
+ 	out[8] = saved->fp;
+@@ -448,6 +452,7 @@
+ 		if (frame[0] <= fp) break;
+ 		fp = frame[0];
+ 	}
++	enable_preemption();
+ }
+ 
+ void

@@ -18,7 +18,7 @@ include = ["XnuPrelink", "DarwinBoot", "ArmDTPlatform"]
 [kernel]
 defconfig = "raphael_defconfig"
 config_fragments = ["arch:configs/common.config", "soc:configs/sm8150.config"]
-patch_series = ["arch:patches/xnu/series", "soc:patches/xnu/series", "device:patches/xnu/series"]
+patch_series = ["arch:patches/xnu/series", "soc:patches/xnu/series", "device:patches/xnu/os-bootstrap.series", "device:patches/xnu/series"]
 archives = ["build-corecrypto-14.py", "build-corecrypto-14.py --namespace", "build-raphael-cpu.py", "build-raphael-pthread.py"]
 
 [device_tree]

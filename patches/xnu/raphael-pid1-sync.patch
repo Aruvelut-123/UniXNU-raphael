@@ -1,0 +1,35 @@
+--- a/osfmk/arm64/sleh.c
++++ b/osfmk/arm64/sleh.c
+@@ -631,8 +631,10 @@
+ static bool raphael_native_copy_observing(thread_t thread)
+ {
+ 	return raphael_native_diag_config[7] == 20 &&
+-	       (uintptr_t)thread == raphael_native_user_record[9] &&
+-	       raphael_native_copy_record[1] == 1;
++	       (((uintptr_t)thread == raphael_native_user_record[9] &&
++	         raphael_native_copy_record[1] == 1) ||
++	        (raphael_native_user_record[11] &&
++	         (uintptr_t)thread == raphael_native_user_record[11]));
+ }
+ static void raphael_native_sync_capture(arm_saved_state_t *state, uint32_t esr, vm_offset_t far)
+ {
+--- a/bsd/dev/arm/systemcalls.c
++++ b/bsd/dev/arm/systemcalls.c
+@@ -130,7 +130,7 @@
+ 			}
+ 			raphael_sequence = ++raphael_native_user_record[1];
+ 			raphael_slot = &raphael_native_syscall_ring[((raphael_sequence - 1) % 32) * 16];
+-			raphael_slot[0] = raphael_sequence;
++			raphael_slot[0] = 0;
+ 			raphael_slot[1] = code;
+ 			raphael_slot[2] = user->pc;
+ 			raphael_slot[3] = (uintptr_t)thread_act;
+@@ -140,6 +140,8 @@
+ 			raphael_slot[12] = ~0ULL;
+ 			raphael_slot[13] = 0; raphael_slot[14] = 0;
+ 			raphael_slot[15] = thread_tid(thread_act);
++			/* Publish only after all entry fields are initialized. */
++			raphael_slot[0] = raphael_sequence;
+ 		}
+ 	}
+ 

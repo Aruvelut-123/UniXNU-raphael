@@ -1,0 +1,166 @@
+--- a/osfmk/arm64/locore.s
++++ b/osfmk/arm64/locore.s
+@@ -282,7 +282,15 @@
+ 	.globl EXT(ExceptionVectorsBase)
+ LEXT(ExceptionVectorsBase)
+ Lel1_sp0_synchronous_vector:
+-	BRANCH_TO_KVA_VECTOR el1_sp0_synchronous_vector_long, 0
++	/* Preserve normal VM faults; only BRK enters the diagnostic bridge. */
++	mrs x18, ESR_EL1
++	lsr x18, x18, #26
++	cmp x18, #0x3c
++	b.ne 1f
++	mov x17, #0
++	b EXT(raphael_native_relay)
++1:
++	BRANCH_TO_KVA_VECTOR el1_sp0_synchronous_vector_long, 0
+ 
+ 	.text
+ 	.align 7
+@@ -302,7 +310,15 @@
+ 	.text
+ 	.align 7
+ Lel1_sp1_synchronous_vector:
+-	BRANCH_TO_KVA_VECTOR el1_sp1_synchronous_vector_long, 4
++	/* Preserve normal VM faults; only BRK enters the diagnostic bridge. */
++	mrs x18, ESR_EL1
++	lsr x18, x18, #26
++	cmp x18, #0x3c
++	b.ne 1f
++	mov x17, #4
++	b EXT(raphael_native_relay)
++1:
++	BRANCH_TO_KVA_VECTOR el1_sp1_synchronous_vector_long, 4
+ 
+ 	.text
+ 	.align 7
+--- a/osfmk/kern/startup.c
++++ b/osfmk/kern/startup.c
+@@ -709,6 +709,12 @@
+ 	ml_spin_debug_clear_self();
+ #endif
+ 	(void) spllo();         /* Allow interruptions */
++	/* Explicit diagnostic build; original POST has already run. */
++	extern uint64_t raphael_native_diag_config[];
++	extern void raphael_native_irq_checkpoint(void);
++	if (raphael_native_diag_config[7] == 15) {
++		raphael_native_irq_checkpoint();
++	}
+ 
+ 	/*
+ 	 * This will start displaying progress to the user, start as early as possible
+@@ -770,6 +776,11 @@
+ 	 * the static KVA mappings used for the jettisoned bootstrap segments.
+ 	 */
+ 	kernel_bootstrap_log("OSKextRemoveKextBootstrap");
++	/* Stop before bootstrap metadata is jettisoned, when requested. */
++	extern void raphael_native_prepare_checkpoint(void);
++	if (raphael_native_diag_config[7] == 16) {
++		raphael_native_prepare_checkpoint();
++	}
+ 	OSKextRemoveKextBootstrap();
+ 
+ #if SOCKETS
+@@ -788,5 +799,9 @@
+ 	kernel_bootstrap_log("machine_lockdown");
+ 	machine_lockdown();
++	extern void raphael_native_lockdown_checkpoint(void);
++	if (raphael_native_diag_config[7] == 17) {
++		raphael_native_lockdown_checkpoint();
++	}
+ 
+ #ifdef CONFIG_XNUPOST
+ 	kern_return_t result = kernel_list_tests();
+@@ -802,6 +817,10 @@
+ #ifdef  IOKIT
+ 	kernel_bootstrap_log("PE_lockdown_iokit");
+ 	PE_lockdown_iokit();
++	extern void raphael_native_matched_checkpoint(void);
++	if (raphael_native_diag_config[7] == 18) {
++		raphael_native_matched_checkpoint();
++	}
+ #endif
+ 	/*
+ 	 * max_cpus must be nailed down by the time PE_lockdown_iokit() finishes,
+--- a/bsd/kern/bsd_init.c
++++ b/bsd/kern/bsd_init.c
+@@ -688,3 +688,15 @@
+ 	bsd_init_kprintf("calling bsd_bufferinit\n");
+ 	bsd_bufferinit();
++	/* Explicit diagnostic: exercise timer-backed sleep before filesystem init. */
++	extern uint64_t raphael_native_diag_config[];
++	extern void raphael_native_bsd_checkpoint(void);
++	extern void raphael_native_storage_quiesce(void);
++	if (raphael_native_diag_config[7] == 19) {
++		/* Allow asynchronous device matching before the terminal handoff. */
++		IOSleep(500);
++		raphael_native_storage_quiesce();
++		IOSleep(100);
++		raphael_native_bsd_checkpoint();
++	}
++
+ 
+--- a/osfmk/kern/debug.c
++++ b/osfmk/kern/debug.c
+@@ -1020,3 +1020,7 @@
+ #undef panic
++/* Explicit source diagnostic build; captured in mutable-segment recovery. */
++uint64_t raphael_native_panic_record[32];
++uint64_t raphael_native_fault_record[64];
++
+ void
+ panic(const char *str, ...)
+@@ -1136,5 +1139,28 @@
+ #pragma clang diagnostic pop
+ 
++	extern uint64_t raphael_native_diag_config[];
++	extern int raphael_native_panic_storage_quiesce(void);
++	extern void raphael_native_panic_checkpoint(void);
++	if (raphael_native_diag_config[1] && raphael_native_diag_config[7] >= 15 &&
++	    raphael_native_diag_config[7] <= 20 && !raphael_native_panic_record[1]) {
++		__asm__ volatile("msr daifset, #0xf" ::: "memory");
++		raphael_native_panic_record[0] = 0x31434e5048505255ULL;
++		raphael_native_panic_record[1] = 1;
++		raphael_native_panic_record[2] = panic_caller;
++		raphael_native_panic_record[3] = (uintptr_t)panic_format_str;
++		raphael_native_panic_record[4] = (uintptr_t)panic_args;
++		raphael_native_panic_record[5] = reason;
++		raphael_native_panic_record[6] = (uintptr_t)ctx;
++		raphael_native_panic_record[7] = panic_options_mask;
++		char *message = (char *)&raphael_native_panic_record[8];
++		for (unsigned i = 0; i < 191 && panic_format_str && panic_format_str[i]; ++i) {
++			message[i] = panic_format_str[i];
++		}
++		if (raphael_native_panic_storage_quiesce()) {
++			raphael_native_panic_checkpoint();
++		}
++	}
++
+ #if defined(__x86_64__) && (DEVELOPMENT || DEBUG)
+ 	read_lbr();
+ #endif
+--- a/osfmk/arm64/sleh.c
++++ b/osfmk/arm64/sleh.c
+@@ -468,3 +468,22 @@
+ 	ss_valid = is_saved_state64(ss);
+ 	arm_saved_state64_t *state = saved_state64(ss);
++	/* Preserve the first actual exception before panic formatting uses its stack. */
++	extern uint64_t raphael_native_diag_config[];
++	extern uint64_t raphael_native_fault_record[];
++	if (ss_valid && raphael_native_diag_config[1] &&
++	    raphael_native_diag_config[7] >= 15 && raphael_native_diag_config[7] <= 20 &&
++	    !raphael_native_fault_record[1]) {
++		raphael_native_fault_record[0] = 0x31544c4650485255ULL;
++		raphael_native_fault_record[1] = 1;
++		raphael_native_fault_record[2] = state->pc;
++		raphael_native_fault_record[3] = state->lr;
++		raphael_native_fault_record[4] = state->sp;
++		raphael_native_fault_record[5] = state->far;
++		raphael_native_fault_record[6] = state->esr;
++		raphael_native_fault_record[7] = state->cpsr;
++		for (unsigned i = 0; i < 29; ++i) raphael_native_fault_record[8 + i] = state->x[i];
++		raphael_native_fault_record[37] = state->fp;
++		char *message = (char *)&raphael_native_fault_record[38];
++		for (unsigned i = 0; i < 127 && msg && msg[i]; ++i) message[i] = msg[i];
++	}
+ 

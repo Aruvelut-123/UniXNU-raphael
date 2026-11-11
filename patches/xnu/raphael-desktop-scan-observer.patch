@@ -1,0 +1,11 @@
+--- a/bsd/kern/bsd_init.c
++++ b/bsd/kern/bsd_init.c
+@@ -567,7 +567,7 @@
+ volatile uint64_t raphael_native_root_record[16];
+ volatile uint32_t raphael_native_root_stage;
+-volatile uint32_t raphael_native_root_limit = 7200;
++volatile uint32_t raphael_native_root_limit = 18000;
+ volatile uint32_t raphael_native_watchdog_method_checkpoint = 5;
+ volatile uint64_t raphael_native_user_record[16];
+ volatile uint32_t raphael_native_init_stage;
+ volatile int raphael_native_init_exec_error;

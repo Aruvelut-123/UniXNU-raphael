@@ -1,0 +1,10 @@
+# Explicit diagnostic kernel only; linked before original integrity finalization.
+raphael-compiled-return.patch
+raphael-root-observer.patch
+raphael-init-observer.patch
+raphael-init-stack.patch
+raphael-init-sync.patch
+raphael-init-kill.patch
+raphael-init-syscalls.patch
+raphael-pid1-sync.patch
+raphael-service-window.patch

@@ -1,0 +1,91 @@
+--- a/bsd/dev/arm/systemcalls.c
++++ b/bsd/dev/arm/systemcalls.c
+@@ -86,6 +86,8 @@
+  *
+  * Outputs:	none
+  */
++volatile uint64_t raphael_native_syscall_ring[512];
++
+ void
+ unix_syscall(
+ 	struct arm_saved_state * state,
+@@ -97,6 +99,8 @@
+ 	unsigned short  code, syscode;
+ 	pid_t           pid;
+ 	struct uthread *uthread = get_bsdthread_info(thread_act);
++	volatile uint64_t *raphael_slot = NULL;
++	uint64_t raphael_sequence = 0;
+ 
+ 	uthread_reset_proc_refcount(uthread);
+ 
+@@ -118,7 +122,24 @@
+ 			raphael_native_user_record[2] = code;
+ 			raphael_native_user_record[7] = user->pc;
+ 			raphael_native_user_record[8] = user->x[16];
+-			raphael_native_user_record[1]++;
++			if (raphael_native_user_record[11] != (uintptr_t)thread_act) {
++				thread_reference(thread_act);
++				thread_t previous = (thread_t)raphael_native_user_record[11];
++				raphael_native_user_record[11] = (uintptr_t)thread_act;
++				if (previous) thread_deallocate(previous);
++			}
++			raphael_sequence = ++raphael_native_user_record[1];
++			raphael_slot = &raphael_native_syscall_ring[((raphael_sequence - 1) % 32) * 16];
++			raphael_slot[0] = raphael_sequence;
++			raphael_slot[1] = code;
++			raphael_slot[2] = user->pc;
++			raphael_slot[3] = (uintptr_t)thread_act;
++			raphael_slot[4] = user->cpsr;
++			for (unsigned i = 0; i < 6; ++i) raphael_slot[5+i] = user->x[i];
++			raphael_slot[11] = 1;
++			raphael_slot[12] = ~0ULL;
++			raphael_slot[13] = 0; raphael_slot[14] = 0;
++			raphael_slot[15] = thread_tid(thread_act);
+ 		}
+ 	}
+ 
+@@ -201,6 +222,12 @@
+ 	AUDIT_SYSCALL_ENTER(code, proc, uthread);
+ 	error = (*(callp->sy_call))(proc, &uthread->uu_arg[0], &(uthread->uu_rval[0]));
+ 	AUDIT_SYSCALL_EXIT(code, proc, uthread, error);
++	if (raphael_slot && raphael_slot[0] == raphael_sequence) {
++		raphael_slot[12] = (uint64_t)(int64_t)error;
++		raphael_slot[13] = uthread->uu_rval[0];
++		raphael_slot[14] = uthread->uu_rval[1];
++		raphael_slot[11] = 2;
++	}
+ 
+ #if CONFIG_MACF
+ skip_syscall:
+--- a/bsd/kern/kern_exec.c
++++ b/bsd/kern/kern_exec.c
+@@ -8220,6 +8220,7 @@
+ {
+ 	if (raphael_native_diag_config[7] == 20) {
+ 		raphael_native_init_stage = 1;
++		thread_reference(current_thread());
+ 		raphael_native_user_record[9] = (uintptr_t)current_thread();
+ 	}
+ 	uint32_t i;
+--- a/bsd/kern/bsd_init.c
++++ b/bsd/kern/bsd_init.c
+@@ -586,7 +586,7 @@
+ 		extern volatile int native_owner_root_accepted;
+ 		if (native_owner_root_accepted == 1) {
+ 			raphael_native_root_record[3] = 1;
+-			if (raphael_native_user_record[1] >= 4) break;
++			/* Observe the full existing five-second service-start window. */
+ 		}
+ #endif
+ 	}
+@@ -602,7 +602,9 @@
+ 		for (unsigned i = 0; i < 31 && rootdevice[i]; ++i) device[i] = rootdevice[i];
+ 	}
+ 	extern void raphael_native_init_stack_capture(uintptr_t);
+-	raphael_native_init_stack_capture(raphael_native_user_record[9]);
++	raphael_native_init_stack_capture(raphael_native_user_record[11] ? raphael_native_user_record[11] : raphael_native_user_record[9]);
++	if (raphael_native_user_record[11]) thread_deallocate((thread_t)raphael_native_user_record[11]);
++	if (raphael_native_user_record[9]) thread_deallocate((thread_t)raphael_native_user_record[9]);
+ 	raphael_native_root_record[1] = 2;
+ 	raphael_native_storage_quiesce();
+ 	__asm__ volatile("msr daifset, #0xf" ::: "memory");
