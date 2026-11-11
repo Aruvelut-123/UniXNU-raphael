@@ -1,0 +1,31 @@
+/dts-v1/;
+// SPDX-License-Identifier: BSD-2-Clause-Patent
+/*
+ * raphael (SM8150) device tree for UniXNU
+ * Redmi K20 Pro / Mi 9T Pro
+ */
+
+/include/ "sm8150.dtsi"
+
+/ {
+    model = "Redmi K20 Pro";
+    compatible = "xiaomi,raphael", "qcom,sm8150";
+
+    chosen {
+        bootargs = "debug=0x14e keepsyms=1 serial=3";
+    };
+
+    memory@80000000 {
+        device_type = "memory";
+        reg = <0x0 0x80000000 0x0 0x100000000>; /* 4 GiB */
+    };
+};
+
+&cpu0 { status = "okay"; };
+&cpu1 { status = "okay"; };
+&cpu2 { status = "okay"; };
+&cpu3 { status = "okay"; };
+&cpu4 { status = "okay"; };
+&cpu5 { status = "okay"; };
+&cpu6 { status = "okay"; };
+&cpu7 { status = "okay"; };

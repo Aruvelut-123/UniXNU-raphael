@@ -1,0 +1,42 @@
+name: Convert IPSW to Sparse Image
+
+on:
+  workflow_dispatch:
+    inputs:
+      ipsw_url:
+        description: 'URL to IPSW file (or leave empty to use manual upload)'
+        required: false
+      raw_image:
+        description: 'Path to raw image (relative to workspace)'
+        required: false
+
+jobs:
+  convert:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download IPSW
+        if: github.event.inputs.ipsw_url
+        run: |
+          wget -q "${{ github.event.inputs.ipsw_url }}" -O restore.ipsw
+          ls -lh restore.ipsw
+
+      - name: Convert to sparse
+        run: |
+          if [ -f "restore.ipsw" ]; then
+            python3 scripts/ipsw_to_sparse.py --ipsw restore.ipsw --output userdata.sparse
+          elif [ -f "${{ github.event.inputs.raw_image }}" ]; then
+            python3 scripts/ipsw_to_sparse.py --raw-image "${{ github.event.inputs.raw_image }}" --output userdata.sparse
+          else
+            echo "No input provided"
+            exit 1
+          fi
+
+      - name: Upload sparse image
+        uses: actions/upload-artifact@v4
+        with:
+          name: userdata-sparse
+          path: userdata.sparse
+          retention-days: 7

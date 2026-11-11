@@ -1,0 +1,5 @@
+# XNU patches for raphael (SM8150)
+# Applied after arch and soc series
+
+# No device-specific XNU patches yet.
+# Add patches here as they are developed.

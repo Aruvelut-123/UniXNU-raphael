@@ -1,0 +1,16 @@
+.out/
+out/
+build/
+*.d
+*.o
+*.efi
+*.fd
+*.img
+*.img.gz
+*.sparse
+*.dbr
+*.trustcache
+.idea/
+.vscode/
+__pycache__/
+*.pyc

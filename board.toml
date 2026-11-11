@@ -1,0 +1,36 @@
+schema_version = 2
+
+[board]
+name = "raphael"
+soc = "SM8150"
+soc_source = "sm8150"
+# raphael (SM8150) CPUs are Cortex-A76/A55 which do NOT implement FEAT_PAuth.
+# Therefore the arm64e profiles (ipados-26/27) cannot be used on this SoC.
+# We use ipados-17.7.11-21H461 (arm64) as the primary target and define a
+# separate ipados-26 profile variant for experimentation only.
+os_profile = "ipados-17.7.11-21H461"
+kit = "raphael"
+description = "Redmi K20 Pro / Mi 9T Pro (raphael, SM8150) - arm64 port (primary target: ipados-17.7.11). ipados-26 earmarked for ABI research only."
+
+[components]
+include = ["XnuPrelink", "DarwinBoot", "ArmDTPlatform"]
+
+[kernel]
+defconfig = "raphael_defconfig"
+config_fragments = ["arch:configs/common.config", "soc:configs/sm8150.config"]
+patch_series = ["arch:patches/xnu/series", "soc:patches/xnu/series", "device:patches/xnu/series"]
+archives = ["build-corecrypto-14.py", "build-corecrypto-14.py --namespace", "build-raphael-cpu.py", "build-raphael-pthread.py"]
+
+[device_tree]
+source = "device:dts/raphael.dts"
+include_dirs = ["soc:dts"]
+
+[package]
+unixnu = "../sources/UniXNU-packaging"
+unixnu_repository = "UniXNU/UniXNU"
+unixnu_revision = "main"
+
+[package.defconfig]
+"ipados-17.7.11-21H461" = "raphael_defconfig"
+# ipados-26.5.2-23F84 is NOT mapped on SM8150 (no FEAT_PAuth support).
+# Define arm64e profile here only if PAC hardware is available.

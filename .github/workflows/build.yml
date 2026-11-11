@@ -1,0 +1,119 @@
+name: Build UniXNU EFI and Firmware
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  UEFI_DIR: uefi-raphael
+  DEVICE_DIR: UniXNU-raphael-ipados26
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Linux toolchain packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            git patch flex bison bzip2 cpio rsync curl wget ca-certificates \
+            tcsh unifdef cmake clang lld mtools build-essential pkg-config \
+            ninja-build python3 python3-dev xz-utils libssl-dev zlib1g-dev \
+            libbsd-dev uuid-dev llvm-dev libclang-dev device-tree-compiler
+
+      - name: Clone UniXNU
+        run: |
+          git clone --recurse-submodules https://github.com/UniXNU/UniXNU.git UniXNU
+
+      - name: Select device and fetch sources
+        run: |
+          cd UniXNU
+          ./unixnu defconfig raphael_defconfig -D "../${DEVICE_DIR}"
+          ./unixnu fetch
+
+      - name: Show resolution
+        run: |
+          cd UniXNU
+          ./unixnu status --json | tee status.json
+
+      - name: Build kernel (ipados-17.7.11, arm64)
+        run: |
+          cd UniXNU
+          ./unixnu kernel -D "../${DEVICE_DIR}"
+
+      - name: Build EFI package
+        run: |
+          cd UniXNU
+          ./unixnu package -D "../${DEVICE_DIR}"
+
+      - name: Check for UEFI checkout
+        id: uefi
+        run: |
+          if [ -d "../${UEFI_DIR}" ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::No uefi-raphael checkout; skipping firmware build."
+          fi
+
+      - name: Build firmware
+        if: steps.uefi.outputs.present == 'true'
+        run: |
+          cd UniXNU
+          ./unixnu build firmware -D "../${DEVICE_DIR}" --uefi "../${UEFI_DIR}"
+
+      - name: Pack boot image
+        run: |
+          cd UniXNU
+          ./unixnu bootimg -D "../${DEVICE_DIR}"
+
+      - name: Collect products
+        run: |
+          mkdir -p dist
+          find UniXNU/out -name 'UniXNU.efi' -exec cp -v {} dist/ \;
+          find UniXNU/out -name 'boot.img'   -exec cp -v {} dist/ \;
+          find UniXNU/out -name 'kernel.macho' -exec cp -v {} dist/ \;
+          ls -lh dist/
+
+      - name: Upload EFI
+        uses: actions/upload-artifact@v4
+        with:
+          name: unixnu-efi
+          path: dist/UniXNU.efi
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Upload boot image
+        uses: actions/upload-artifact@v4
+        with:
+          name: unixnu-bootimg
+          path: dist/boot.img
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Upload kernel
+        uses: actions/upload-artifact@v4
+        with:
+          name: unixnu-kernel
+          path: dist/kernel.macho
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Publish release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/UniXNU.efi
+            dist/boot.img
+            dist/kernel.macho
+          generate_release_notes: true

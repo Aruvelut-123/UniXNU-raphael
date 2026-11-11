@@ -1,0 +1,6 @@
+# Shared SoC support for SM8150
+[[source]]
+name = "sm8150"
+kind = "soc"
+git = "https://github.com/guowenye/UniXNU-sm8150-common.git"
+commit = "f8bc872ce6254a84ecae839edcba9145a591e655"

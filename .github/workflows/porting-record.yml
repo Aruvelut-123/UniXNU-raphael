@@ -1,0 +1,22 @@
+name: Validate Porting Record
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Checkout UniXNU
+        run: git clone --depth 1 https://github.com/UniXNU/UniXNU.git UniXNU
+
+      - name: Validate porting.toml
+        run: |
+          cd UniXNU
+          python3 scripts/porting-record.py check --device ../UniXNU-raphael-ipados26

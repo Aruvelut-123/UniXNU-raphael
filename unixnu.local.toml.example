@@ -1,0 +1,6 @@
+# Local build configuration for UniXNU-raphael-ipados26
+# Copy to unixnu.local.toml and adjust paths
+
+[local]
+device_repository = "../UniXNU-raphael-ipados26"
+uefi_repository = "../uefi-raphael"
