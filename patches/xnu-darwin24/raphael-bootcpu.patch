@@ -11,6 +11,8 @@ index 000000000000..000000000001 100644
      "     'IOProviderClass' = IOPlatformDevice;"
      "     'IOProbeScore'    = 2000:32;"
      "   },"
+diff --git a/osfmk/arm64/machine_routines.c b/osfmk/arm64/machine_routines.c
+index 000000000000..000000000001 100644
 --- a/osfmk/arm64/machine_routines.c
 +++ b/osfmk/arm64/machine_routines.c
 @@ -2163,6 +2163,27 @@
