@@ -62,32 +62,62 @@ fi
 BUILD_ARGS=()
 [ -n "$IPSW" ] && BUILD_ARGS+=(--ipsw "$IPSW")
 [ "$DRY_RUN" -eq 1 ] && BUILD_ARGS+=(--dry-run)
-
 echo ">>> unixnu build userdata ${BUILD_ARGS[*]:-}"
-( cd "$UNIXNU_DIR" && ./unixnu build userdata -D "$REPO_ROOT" "${BUILD_ARGS[@]:-}" )
+# The build prints "== userdata: <path>" as its last word on the image; capture
+# it instead of guessing the path. ctx.work is out/<board>/<os profile>/<config>
+# (config.py:146-164), and <config> comes from the selected defconfig, so the
+# path cannot be reconstructed from board.toml alone.
+BUILD_LOG="$(mktemp)"
+build_status=0
+( cd "$UNIXNU_DIR" && ./unixnu build userdata -D "$REPO_ROOT" ${BUILD_ARGS[@]+"${BUILD_ARGS[@]}"} ) > "$BUILD_LOG" 2>&1 \
+  || build_status=$?
 
-# ctx.work is out/<board name> (config.py:146), and userdata.py:paths() puts the
-# image under <work>/userdata. The OS profile does not appear in the path.
-BOARD_NAME=$(sed -n 's/^[[:space:]]*name[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' "$REPO_ROOT/board.toml" | head -1)
-if [ -z "$BOARD_NAME" ]; then
-  echo "error: no [board] name in $REPO_ROOT/board.toml" >&2
+if [ "$build_status" -ne 0 ]; then
+  cat "$BUILD_LOG" >&2
+  echo "error: unixnu build userdata failed with status $build_status" >&2
+  rm -f "$BUILD_LOG"
   exit 1
 fi
-REPORT="$UNIXNU_DIR/out/$BOARD_NAME/userdata/userdata-root.json"
-IMAGE="$UNIXNU_DIR/out/$BOARD_NAME/userdata/userdata-root.img"
+cat "$BUILD_LOG"
 
 if [ "$DRY_RUN" -eq 1 ]; then
+  rm -f "$BUILD_LOG"
   echo "dry run complete; no image written"
   exit 0
 fi
 
-if [ ! -f "$IMAGE" ]; then
-  echo "error: expected image at $IMAGE" >&2
+# Resolve the image path from the build's own report, never by guessing.
+# ctx.work = out/<board>/<os profile>/<config> (config.py:146-164), where
+# <config> is the selected defconfig minus its suffix, so the path cannot be
+# reconstructed from board.toml.
+# util.log() prefixes every line with "== ".
+IMAGE="$(sed -n 's/^== userdata: \(.*userdata-root\.img\)$/\1/p' "$BUILD_LOG" | tail -1)"
+REPORT="$(dirname "${IMAGE:-.}")/userdata-root.json"
+
+if [ -z "$IMAGE" ] || [ ! -f "$IMAGE" ]; then
+  # Second source: the flash command the build prints for the user.
+  IMAGE="$(sed -n 's/^== flash it yourself with: fastboot flash userdata \(.*\)$/\1/p' "$BUILD_LOG" | tail -1)"
+fi
+
+if [ -z "$IMAGE" ] || [ ! -f "$IMAGE" ]; then
+  # Last resort, in case the log wording changes.
+  IMAGE="$(find "$UNIXNU_DIR/out" -name 'userdata-root.img' -newer "$REPO_ROOT/board.toml" 2>/dev/null | head -1)"
+fi
+
+if [ -z "$IMAGE" ] || [ ! -f "$IMAGE" ]; then
+  echo "error: could not locate the built userdata-root.img" >&2
+  echo "--- build log tail ---" >&2
+  tail -40 "$BUILD_LOG" >&2
+  rm -f "$BUILD_LOG"
   exit 1
 fi
 
+rm -f "$BUILD_LOG"
+
+IMAGE="$(cd "$(dirname "$IMAGE")" && pwd)/$(basename "$IMAGE")"
+echo "image: $IMAGE"
 ls -lh "$IMAGE"
-[ -f "$REPORT" ] && echo "report: $REPORT"
+[ -n "$REPORT" ] && [ -f "$REPORT" ] && echo "report: $REPORT"
 
 # --- optionally flash ---------------------------------------------------------
 if [ "$DO_FLASH" -eq 1 ]; then

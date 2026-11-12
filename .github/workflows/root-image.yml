@@ -95,26 +95,41 @@ jobs:
           ./unixnu build userdata --dry-run -D "$DEVICE_DIR"
 
       - name: Build the root image
+        id: root
         run: |
-          cd "$UNIXNU_DIR"
-          # No --ipsw: the OS profile's [ipsw] is the iOS 18.7.12 payload.
-          ./unixnu build userdata -D "$DEVICE_DIR"
-          ls -lh "out/raphael/userdata/"
+          cd "$DEVICE_DIR"
+          # scripts/build-root.sh resolves the output path from the build's own
+          # report. Never hardcode it: ctx.work is
+          # out/<board>/<os profile>/<config> (config.py:146-164), and <config>
+          # is the selected defconfig minus its suffix, so the path cannot be
+          # reconstructed from board.toml alone.
+          # pipefail so a failed build cannot be hidden by tee's exit status.
+          set -o pipefail
+          scripts/build-root.sh | tee "$GITHUB_WORKSPACE/build-root.log"
+          # Re-publish the resolved path for the later steps.
+          IMAGE="$(sed -n 's/^image: \(.*\)$/\1/p' "$GITHUB_WORKSPACE/build-root.log" | tail -1)"
+          if [ -z "$IMAGE" ] || [ ! -f "$IMAGE" ]; then
+            echo "::error::build-root.sh did not report a usable image path"
+            exit 1
+          fi
+          echo "image=$IMAGE" >> "$GITHUB_OUTPUT"
+          echo "resolved root image: $IMAGE"
 
       - name: Convert to a sparse image
         if: ${{ !inputs.skip_sparse }}
         run: |
           cd "$DEVICE_DIR"
           python3 scripts/ipsw_to_sparse.py \
-            --raw-image "$UNIXNU_DIR/out/raphael/userdata/userdata-root.img" \
+            --raw-image "${{ steps.root.outputs.image }}" \
             --output "$GITHUB_WORKSPACE/unixnu.sparse"
           ls -lh "$GITHUB_WORKSPACE/unixnu.sparse"
 
       - name: Collect products
         run: |
           mkdir -p dist
-          cp -v "$UNIXNU_DIR/out/raphael/userdata/userdata-root.img" dist/
-          cp -v "$UNIXNU_DIR/out/raphael/userdata/userdata-root.json" dist/ 2>/dev/null || true
+          IMAGE="${{ steps.root.outputs.image }}"
+          cp -v "$IMAGE" dist/userdata-root.img
+          cp -v "$(dirname "$IMAGE")/userdata-root.json" dist/ 2>/dev/null || true
           if [ -f "$GITHUB_WORKSPACE/unixnu.sparse" ]; then cp -v "$GITHUB_WORKSPACE/unixnu.sparse" dist/; fi
           echo '--- flash it yourself, there is no --flash in CI ---' > dist/FLASH.txt
           echo '  fastboot flash unixnu unixnu.sparse' >> dist/FLASH.txt
