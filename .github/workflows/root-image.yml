@@ -33,6 +33,11 @@ on:
         type: boolean
         required: false
         default: false
+      include_raw_parts:
+        description: "Also publish the raw image parts (doubles the upload; sparse is what fastboot needs)"
+        type: boolean
+        required: false
+        default: false
 
 permissions:
   contents: write
@@ -162,16 +167,24 @@ jobs:
         if: ${{ steps.mode.outputs.publishes_release == 'true' }}
         run: |
           mkdir -p release
-          for image in dist/unixnu.sparse dist/userdata-root.img; do
+          # Only the sparse image by default: it is what `fastboot flash unixnu`
+          # takes, and it expands to the same 11.19 GiB. Splitting and uploading
+          # the raw image as well would double the transfer for a file nobody
+          # flashes. include_raw_parts turns it back on.
+          images="dist/unixnu.sparse"
+          if [ "${{ inputs.include_raw_parts }}" = "true" ]; then
+            images="dist/unixnu.sparse dist/userdata-root.img"
+          fi
+          for image in $images; do
             [ -f "$image" ] || continue
             python3 "$DEVICE_DIR/scripts/ipsw_split.py" split \
               --input "$image" --output-dir release
           done
           # A short note the downloader reads first.
           {
-            echo 'The images are split because GitHub Releases cap a single'
-            echo 'asset at 2 GiB (2147483648 bytes). Rejoin them and check the'
-            echo 'sha256 the manifest printed before flashing.'
+            echo 'The image is split because GitHub Releases cap a single'
+            echo 'asset at 2 GiB (2147483648 bytes). Rejoin the parts and check'
+            echo 'the sha256 the manifest printed before flashing.'
             echo ''
             echo '  cat unixnu.sparse.part* > unixnu.sparse'
             echo '  sha256sum unixnu.sparse'
@@ -183,9 +196,6 @@ jobs:
             echo 'Then:'
             echo ''
             echo '  fastboot flash unixnu unixnu.sparse'
-            echo ''
-            echo 'Prefer whole files and have a GitHub account? The unixnu-sparse'
-            echo 'and unixnu-root-image artifacts of the same run are not split.'
           } > release/README.txt
           cp -v dist/userdata-root.json release/ 2>/dev/null || true
           ls -lh release/
@@ -217,31 +227,74 @@ jobs:
       # Publish so the image can be fetched without a GitHub account.
       # Only the parts and the small files go here: the whole images are over
       # the 2 GiB release-asset ceiling and would fail the upload outright.
+      #
+      # NOT softprops/action-gh-release: it reads every file into memory and
+      # uploads them serially. With ~19.6 GiB of parts the "Publish release
+      # assets" step sat at 66 MiB for over an hour and never finished. Each
+      # file gets its own `gh release upload` here, with retries, which also
+      # makes a single stalled part recoverable instead of fatal.
       - name: Publish release assets
         if: ${{ steps.mode.outputs.publishes_release == 'true' }}
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ inputs.reuse_release_tag || github.ref_name }}
-          files: |
-            release/*
-            dist/FLASH.txt
-          generate_release_notes: false
-          body: |
-            Root images for raphael (Redmi K20 Pro / Mi 9 T Pro, SM8150),
-            iPadOS 18.7.12 / build 22H390 / Darwin 24.6.0.
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.reuse_release_tag || github.ref_name }}
+        run: |
+          set -uo pipefail
+          # Create the release once, or reuse it if a previous attempt made it.
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "release $TAG exists, adding to it"
+          else
+            gh release create "$TAG" --title "$TAG" --draft \
+              --notes "Root images for raphael (Redmi K20 Pro / Mi 9 T Pro, SM8150).
+          iPadOS 18.7.12 / build 22H390 / Darwin 24.6.0.
 
-            Flash into the `unixnu` partition:
+          Flash into the \`unixnu\` partition:
 
-            ```sh
-            # rejoin the parts first (the images are over GitHub's 2 GiB limit)
-            cat unixnu.sparse.part* > unixnu.sparse
-            sha256sum unixnu.sparse   # must match unixnu.sparse.parts.json
-            fastboot flash unixnu unixnu.sparse
-            ```
+          \`\`\`sh
+          # rejoin the parts first (GitHub caps a release asset at 2 GiB)
+          cat unixnu.sparse.part* > unixnu.sparse
+          sha256sum unixnu.sparse   # must match unixnu.sparse.parts.json
+          fastboot flash unixnu unixnu.sparse
+          \`\`\`
 
-            `userdata-root.json` records the per-window sha256 and the manifest
-            layout, so the flash can be verified afterwards. The image holds the
-            unmodified iOS 18.7.12 `OS` and `Cryptex1,SystemOS` disks.
+          \`userdata-root.json\` records the per-window sha256 and the manifest
+          layout, so the flash can be verified afterwards. The image holds the
+          unmodified iOS 18.7.12 \`OS\` and \`Cryptex1,SystemOS\` disks."
+          fi
+          # Small files first so the instructions are readable before the parts land.
+          for f in release/README.txt release/userdata-root.json \
+                   release/*.parts.json dist/FLASH.txt; do
+            [ -f "$f" ] || continue
+            gh release upload "$TAG" "$f" --clobber || echo "::warning::upload failed: $f"
+          done
+          # Then the parts, one at a time, with retries.
+          failed=0
+          for f in release/*.part[0-9][0-9][0-9]; do
+            [ -f "$f" ] || continue
+            size=$(wc -c < "$f")
+            echo "::group::upload $(basename "$f") ($size bytes)"
+            ok=0
+            for attempt in 1 2 3; do
+              if gh release upload "$TAG" "$f" --clobber; then
+                ok=1
+                break
+              fi
+              echo "attempt $attempt failed for $(basename "$f"), retrying"
+              sleep $((attempt * 15))
+            done
+            echo "::endgroup::"
+            if [ "$ok" -ne 1 ]; then
+              echo "::error::could not upload $(basename "$f") after 3 attempts"
+              failed=$((failed + 1))
+            fi
+          done
+          if [ "$failed" -ne 0 ]; then
+            echo "::error::$failed part(s) failed to upload"
+            exit 1
+          fi
+          # Only publish once every asset is actually there.
+          gh release edit "$TAG" --draft=false
+          echo "published $TAG"
 
       - name: Summary
         run: |
