@@ -1,0 +1,24 @@
+diff --git a/pexpert/pexpert/arm64/raphael.h b/pexpert/pexpert/arm64/raphael.h
+new file mode 100644
+index 0000000..0a600ca
+--- /dev/null
++++ b/pexpert/pexpert/arm64/raphael.h
+@@ -0,0 +1,18 @@
++/* Raphael SM8150 platform header (Darwin 24 port). */
++#ifndef __RAPHAEL_H__
++#define __RAPHAEL_H__
++
++#define __ARM_COHERENT_CACHE__    1
++#define __ARM_DEBUG__             7
++#define __ARM64_PMAP_SUBPAGE_L1__ 1
++
++/* Explicit native ARMv8.1+ bring-up; SM8150 Cortex-A76/A55 implement PAN. */
++#if defined(XNU_NATIVE_PAN) && XNU_NATIVE_PAN
++#define __ARM_PAN_AVAILABLE__      1
++#endif
++
++#ifndef ASSEMBLER
++#include <pexpert/pexpert/arm64/apple_arm64_common.h>
++#endif
++
++#endif

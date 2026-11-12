@@ -1,0 +1,13 @@
+diff --git a/osfmk/arm/pmap/pmap.h b/osfmk/arm/pmap/pmap.h
+index 449dba7..113edf3 100644
+--- a/osfmk/arm/pmap/pmap.h
++++ b/osfmk/arm/pmap/pmap.h
+@@ -428,7 +428,7 @@ struct pmap {
+ 	/* Whether the pmap is used for Rosetta. */
+ 	bool is_rosetta;
+ #else
+-	bool reserved10;
++	bool reserved13;
+ #endif /* defined(CONFIG_ROSETTA) */
+ 
+ #if DEVELOPMENT || DEBUG

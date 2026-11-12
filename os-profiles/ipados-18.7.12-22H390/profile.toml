@@ -109,7 +109,7 @@ systemos_volume_uuid = ""
 
 [kernel.prelink]
 tool = "kits/XnuPrelink/emit_prelink.py"
-kernel = "build/xnu/ios-obj/DEVELOPMENT_ARM64_BCM2837/mach.development.bcm2837.unstripped.noctf"
+kernel = "build/xnu/ios-obj/DEVELOPMENT_ARM64_RAPHAEL/mach.development.raphael.unstripped.noctf"
 # Staged by scripts/stage-arm64-kernelcache.py from the iPadOS 18.7.12 (j171ap,
 # A10 / no PAC) kernelcache. It is deliberately NOT out/ipsw/22H390/, which is
 # where ipsw.kernelcache() would put the arm64e iOS one under the same build ID.
