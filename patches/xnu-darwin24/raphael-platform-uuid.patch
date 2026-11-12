@@ -1,0 +1,26 @@
+--- a/iokit/Kernel/IOPlatformExpert.cpp
++++ b/iokit/Kernel/IOPlatformExpert.cpp
+@@ -2278,6 +2278,23 @@
+ 	}
+ #endif /* defined(__x86_64__) */
+ 
++
++	// A port-assigned platform identity is not an Apple chip identifier.
++	// Keep the original chip-derived path first and require an explicit UUID.
++	if (!string) {
++		entry = IORegistryEntry::fromPath("/chosen", gIODTPlane);
++		if (entry) {
++			OSData *data = OSDynamicCast(OSData, entry->getProperty("unixnu-platform-uuid"));
++			if (data && data->getLength() == sizeof(uuid_t) &&
++			    !uuid_is_null((const uint8_t *)data->getBytesNoCopy())) {
++				uuid_unparse((const uint8_t *)data->getBytesNoCopy(), uuid);
++				string = OSString::withCString(uuid);
++			}
++			entry->release();
++		}
++	}
++
++
+ 	if (string) {
+ 		setProperty( kIOPlatformUUIDKey, string );
+ 		gIOPlatformUUIDAndSerialDone = true;
