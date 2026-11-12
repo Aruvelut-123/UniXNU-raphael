@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
     inputs:
       ipsw_url:
-        description: "URL to the iPadOS 17.7.11 (21H461) IPSW; empty = use raw_image"
+        description: "URL to the IPSW whose OS/SystemOS dmgs become the root image; empty = use raw_image"
         required: false
         default: ""
       member:

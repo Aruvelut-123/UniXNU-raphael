@@ -1,5 +1,18 @@
-# Compile-only OS selection for xnu-10063.141.1, from fixed upstream OS series.
+# Compile-only OS selection for xnu-11417.140.69 (Darwin 24.6.0).
 # Optional zzz-boot-progress.patch assumes an unrelated board PMGR hunk.
 # CONFIG_XNU_BOOT_PROGRESS=n; omit it rather than adding another board platform.
+#
+# UNVERIFIED ON THIS TREE. Both patches below live in
+# kits/XnuPrelink/patches/ and are named after xnu-10063.141.1, the Darwin 23
+# revision they were written against. XnuPrelink requires the two symbols they
+# add (`_native_prelink_security_init_version` in OSKext.cpp and
+# `_kalloc_sparse_prelink_index_version` in kalloc.c), so they cannot simply be
+# dropped, but the hunks may not apply to 11417 unchanged.
+#
+# The first CI run of `./unixnu build kernel` is what settles it:
+#   - applies cleanly -> delete this note, the port is on 18
+#   - rejects         -> port these two hunks to 11417 (see the pong port's
+#                        migration/ipados18/darwin22-to24.md for the shape of a
+#                        Darwin23 -> Darwin24 patch carry)
 component:XnuPrelink/patches/xnu-10063.141.1-security-init.patch
 component:XnuPrelink/patches/xnu-10063.141.1-sparse-index.patch

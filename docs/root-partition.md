@@ -36,31 +36,42 @@ XNU matches `IOMedia` by the root volume UUID written into the ADT. A boot-time
 
 Neither exists yet, so the selection lives in the flash step.
 
-## Adding a `unixnu` partition
+## Filling in `[userdata]`
 
-The partition must be declared in the device GPT before it can be used. Add it
-from a Linux host with `sgdisk` / `parted` while the phone is in a fastboot
-DSU or a booted-recovery shell, then read back its geometry:
-
-```sh
-# On the phone (root shell), read the new entry's LBAs
-sgdisk -i <n> /dev/block/sda
-
-# Copy first_lba / last_lba / lba_bytes into board.toml
-```
-
-`board.toml` describes the **`unixnu`** entry (sda34, 128.00 GiB). Measured on
-the handset; see the table in the README. Do not use `sgdisk -p` on MIUI: the
-`sgdisk` shipped there is toybox's and rejects `-p`.
-
-If you ever re-read the geometry, the sysfs files need root:
+`board.toml [userdata]` holds **one device's** GPT geometry and is what
+`./unixnu build userdata` uses to locate the window on disk. Partition layouts
+differ per handset — a repartitioned disk, a 256 GB model and a stock 512 GB
+model all disagree — so re-read it for your own phone instead of trusting the
+committed numbers:
 
 ```sh
+# On the phone, as root (sysfs is readable only with root):
 adb shell su -c "cat /sys/block/sda/sda34/start /sys/block/sda/sda34/size"
 ```
 
 `start` and `size` are in **512-byte sectors**, so
-`last_lba = start + size - 1`.
+`last_lba = start + size - 1`, and `lba_bytes = 512`.
+
+Do not use `sgdisk -p` on MIUI: the `sgdisk` there is toybox's stub and rejects
+`-p`. Read `/proc/partitions` for sizes and `/dev/block/by-name` for the
+label → node mapping instead, or dump the raw GPT header from the disk.
+
+The committed values describe the maintainer's own repartitioned 512 GB handset
+(`unixnu` = sda34, 128 GiB). Use them only as a sanity check that your `unixnu`
+is big enough; a wrong `first_lba` makes the image land on the wrong sectors.
+
+## The root image must match the kernel's OS profile
+
+The root image is not interchangeable between OS versions. XNU matches the root
+volume by the APFS volume UUID baked into the ADT at build time, and the
+`SystemVolume` root hash plus `StaticTrustCache` come from the same IPSW the
+kernel was built against. Building a kernel from one OS profile and flashing a
+root image from another OS version leaves the kernel unable to find or verify
+its root volume.
+
+So `board.toml [board] os_profile` selects **both** the kernel inputs and the
+IPSW whose disk images go into `[userdata]` windows. Changing one without the
+other is not a supported configuration.
 
 ## Verification
 

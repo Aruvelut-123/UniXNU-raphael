@@ -1,0 +1,122 @@
+# iOS 18.7.12 (22H390) OS profile for raphael (SM8150).
+#
+# WHY THIS FILE EXISTS
+#   Upstream UniXNU ships profiles/os/{ipados-17.7.11-21H461, ipados-26.5.2-23F84,
+#   ipados-27.0.1-24A446, macos-27.3-26C5035r} and no 18.x profile. This
+#   repository carries one, and scripts/install-device-profile.py copies it into
+#   the UniXNU checkout before resolving (board.toml [board] os_profile).
+#
+# WHY iOS 18 IS POSSIBLE ON A NO-PAC SoC
+#   SM8150 (Cortex-A76/A55) has no ARMv8.3 FEAT_PAuth, so arm64e-only profiles
+#   (ipados-26/27) cannot run. iPadOS 18 still ships an arm64 kernelcache: the
+#   2019 iPad 7 (iPad7,11 / j171ap / A10, no PAC) runs 18.7.12. That arm64
+#   kernelcache is the reference the XNU tree is built against.
+#
+# TWO ARCHIVES, ONE BUILD -- DON'T SIMPLIFY THIS AWAY
+#   * [ipsw] is the iOS 18.7.12 restore of iPhone11,2 (iPhone XS, d321ap, A12).
+#     Its OS / Cryptex1,SystemOS disk images become the root image. `userdata`
+#     reads it, and Ipsw(ctx) reads it for every step.
+#   * The arm64 KERNELCACHE comes from the iPadOS 18.7.12 restore of iPad7,11.
+#     iOS 18's lowest device is the A12 iPhone XS, whose kernelcache is arm64e
+#     and would not run on SM8150. [kernel.prelink] kernelcache therefore points
+#     at a separately staged iPadOS kernelcache (see
+#     scripts/stage-arm64-kernelcache.py); prelink never takes it from [ipsw].
+#
+#   Both are build 22H390 / Darwin 24.6.0 / xnu-11417.140.69. The kernel and the
+#   root trust cache are signed by the build, not by the archive they arrive in,
+#   so use the SAME build on both sides; never mix builds or Darwin versions.
+#
+# AEA: macOS ONLY
+#   Both 22H390 restores ship their disk images as .dmg.aea. UniXNU's
+#   decrypt_aea() calls /usr/bin/aea and blacktop/tap/ipsw on macOS. Building the
+#   root image is therefore a macOS step; the Linux host can only resolve and
+#   dry-run it.
+
+[os]
+name = "ipados-18.7.12-22H390"
+darwin = "24.6.0"
+xnu_version = "11417.140.69"
+xnu_revision = "43a90889846e00bfb5cf1d255cdc0a701a1e05a4"
+driverkit_tag = "xnu-10063.121.3"
+trustcache_tag = "xnu-8796.101.5"
+abi = ["Darwin24-arm64-4KiB", "IOGPUFamily-22H390", "IOHIDFamily-22H390", "IOAudio2Family-22H390", "IOMobileGraphicsFamily-22H390"]
+
+# The one IPSW every UniXNU step reads: the iOS payload. Verified against the
+# d321ap Erase identity of the 22H390 BuildManifest (ApChipID 0x8020, ApBoardID 0xe).
+[ipsw]
+url = "https://updates.cdn-apple.com/2026WinterFCS/6cd704b1-a653-4be2-a909-507c6058dcbb/iPhone11,2,iPhone11,4,iPhone11,6_18.7.12_22H390_Restore.ipsw"
+product = "iPhone11,2"
+version = "18.7.12"
+build = "22H390"
+device_class = "d321ap"
+chip_id = 32800
+board_id = 14
+fetch = ["OS", "Cryptex1,SystemOS", "StaticTrustCache", "Cryptex1,SystemTrustCache", "DeviceTree"]
+
+# [ipsw.sha256] pins go here once the members have been fetched on a macOS host.
+# ./unixnu ipsw info -D <device> prints the member names and sizes; an empty
+# string is NOT a valid pin (Ipsw.extract would re-download on every run).
+
+# The ADT handed to the arm64 kernel. model/target-type describe the arm64
+# reference the kernel was compiled for; board.toml and dts/raphael.dts override
+# the raphael-specific parts. The product node stays phone-shaped because the
+# root image is the iOS payload.
+[adt.root.string]
+model = "iPad7,11"
+target-type = "J171"
+target-sub-type = "J171AP"
+
+[adt.root.strings]
+compatible = ["J171AP", "iPad7,11"]
+
+[adt.chosen.string]
+osenvironment = "main"
+crypto-hash-method = "sha2-384"
+
+[adt.chosen.u32]
+debug-enabled = 1
+mix-n-match-prevention-status = 0
+
+[adt.product.string]
+product-name = "iPhone XS"
+product-description = "iPhone XS"
+artwork-device-idiom = "phone"
+artwork-display-gamut = "sRGB"
+compatible-device-fallback = "iPhone11,2"
+
+[adt.product.u32]
+artwork-device-subtype = 2622
+artwork-scale-factor = 3
+device-perf-memory-class = 3
+
+[adt.defaults.u32]
+sleep-disabled = 1
+
+# Windows of the root image. board.toml [userdata] supplies the partition
+# geometry; scripts/build-root.sh selects the partition at flash time.
+[userdata]
+windows = [{ name = "OS", component = "OS" }, { name = "SystemOS", component = "Cryptex1,SystemOS", optional = true }]
+
+[root]
+# APFS System volume UUID of the iOS 18.7.12 OS dmg. kernel.py turns this into
+# XNU_OWNER_ROOT_VOLUME_UUID / UNIXNU_ROOT_OS_UUID, which is what the kernel
+# matches the root volume against. It is only readable after the AEA dmg is
+# decrypted on macOS; scripts/print-root-uuid.py extracts it. Leave it empty
+# until then -- an empty value makes version_env skip the variable instead of
+# burning a wrong UUID into the kernel.
+os_volume_uuid = ""
+systemos_volume_uuid = ""
+
+[kernel.prelink]
+tool = "kits/XnuPrelink/emit_prelink.py"
+kernel = "build/xnu/ios-obj/DEVELOPMENT_ARM64_BCM2837/mach.development.bcm2837.unstripped.noctf"
+# Staged by scripts/stage-arm64-kernelcache.py from the iPadOS 18.7.12 (j171ap,
+# A10 / no PAC) kernelcache. It is deliberately NOT out/ipsw/22H390/, which is
+# where ipsw.kernelcache() would put the arm64e iOS one under the same build ID.
+#
+# Verified arm64, not arm64e: kernelcache.release.ipad7c decodes to a 64-bit
+# Mach-O with cputype 0x0100000C and cpusubtype 0x0. The sha256 below pins it, so
+# a wrong or rebuilt archive stops the prelink instead of silently mismatching.
+kernelcache = "out/raphael/arm64-kernelcache.decompressed"
+kernelcache_sha256 = "6cbf58bc00841c3e76af9c6731a6435a788088b9497c0cd8d675b37fceb0e028"
+slide = "-0x1000000"

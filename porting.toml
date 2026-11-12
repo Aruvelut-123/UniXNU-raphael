@@ -3,8 +3,8 @@ schema_version = 1
 [device]
 name = "raphael"
 soc = "SM8150"
-os_profile = "ipados-17.7.11-21H461"
-summary = "Redmi K20 Pro / Mi 9T Pro (raphael, SM8150) arm64 UniXNU port. Configuration and image-assembly tooling are in place; kernel, firmware and every hardware area still need device verification."
+os_profile = "ipados-18.7.12-22H390"
+summary = "Redmi K20 Pro / Mi 9T Pro (raphael, SM8150) arm64 UniXNU port. Target build is ipados-18.7.12-22H390 (Darwin 24.6.0): the root image comes from the iOS 18.7.12 restore of iPhone11,2, the arm64 kernelcache from the iPadOS 18.7.12 restore of iPad7,11. Configuration and image-assembly tooling are in place; kernel, firmware and every hardware area still need device verification."
 
 # ---------------------------------------------------------------- configuration
 [[area]]
@@ -14,21 +14,28 @@ components = ["ArmDTPlatform"]
 paths = ["board.toml", "feeds.toml", "configs/raphael_defconfig", "dts/raphael.dts", "patches/xnu/series"]
 inputs = [
   "SM8150 device identity and partition plan from the raphael board configuration",
-  "OS profile ipados-17.7.11-21H461 (arm64) from the UniXNU profile tree",
+  "OS profile ipados-18.7.12-22H390 (arm64) carried by this repository and installed into the UniXNU checkout",
+  "iOS 18.7.12 payload IPSW and the staged iPadOS 18.7.12 arm64 kernelcache, both build 22H390",
   "Shared SM8150 support pinned in feeds.toml",
 ]
 configuration = [
-  "format 2 board: soc_source=sm8150, kit=raphael, os_profile=ipados-17.7.11-21H461",
+  "format 2 board: soc_source=sm8150, kit=raphael, os_profile=ipados-18.7.12-22H390",
+  "upstream UniXNU has no 18.x profile, so os-profiles/ipados-18.7.12-22H390/ is copied in by scripts/install-device-profile.py",
+  "the arm64 kernelcache is staged by scripts/stage-arm64-kernelcache.py into the path [kernel.prelink] kernelcache names",
   "kernel fragments arch:configs/common.config and soc:configs/sm8150.config",
-  "arm64e profiles are intentionally not mapped: SM8150 has no FEAT_PAuth",
+  "arm64e-only profiles are intentionally not mapped: SM8150 has no FEAT_PAuth",
 ]
 procedure = [
-  "From the UniXNU checkout: ./unixnu defconfig raphael_defconfig -D ../UniXNU-raphael-ipados26",
-  "./unixnu fetch, then ./unixnu status --json",
+  "From the UniXNU checkout: python3 ../UniXNU-raphael/scripts/install-device-profile.py --unixnu .",
+  "python3 ../UniXNU-raphael/scripts/stage-arm64-kernelcache.py --unixnu .",
+  "./unixnu defconfig raphael_defconfig -D ../UniXNU-raphael, ./unixnu fetch -D ../UniXNU-raphael, then ./unixnu status --json -D ../UniXNU-raphael",
 ]
 findings = [
-  "iPadOS 26 and 27 ship arm64e only, so ipados-17.7.11-21H461 is the newest profile this SoC can run",
-  "status resolves arch=arm64, soc=sm8150, os=ipados-17.7.11-21H461 and the device board.toml",
+  "arm64e-only Apple OS profiles (iPadOS 26/27) cannot run on this SoC (no FEAT_PAuth); iPadOS 18 still ships an arm64 kernelcache because the no-PAC A10 iPad 7 runs it",
+  "UniXNU reads exactly one IPSW per run, so the iOS payload is [ipsw] and the arm64 kernelcache is passed to prelink by path instead",
+  "iPadOS and iOS share the 22H390 build ID, so the staged kernelcache needs its own output path or the two would overwrite each other in out/ipsw/22H390/",
+  "both 22H390 dmgs are AEA encrypted, so building the root image needs macOS /usr/bin/aea",
+  "status resolves arch=arm64, soc=sm8150, os=ipados-18.7.12-22H390 and the device board.toml",
 ]
 completion = [
   "Every profile root, source pin, component closure and patch order resolves without error",
@@ -43,7 +50,7 @@ next_action = [
 [[area.evidence]]
 kind = "source"
 reference = "board.toml"
-result = "Format 2 board definition with the arm64 iPadOS 17.7.11 profile and raphael_defconfig mapping."
+result = "Format 2 board definition with the arm64 ipados-18.7.12-22H390 profile (iOS 18.7.12 payload for the root image, staged iPadOS 18.7.12 arm64 kernelcache for prelink) and raphael_defconfig mapping."
 
 [[area.evidence]]
 kind = "source"
@@ -152,7 +159,7 @@ inputs = [
   "Shared SM8150 UFS operations from the pinned SoC repository",
 ]
 configuration = [
-  "Root image is built with ./unixnu build userdata from the board partition geometry",
+  "Root image is built with ./unixnu build userdata from the board partition geometry and the OS profile's IPSW",
   "scripts/build-root.sh prefers a unixnu partition label and falls back to userdata at flash time",
 ]
 procedure = [
@@ -160,6 +167,8 @@ procedure = [
 ]
 findings = [
   "UniXNU selects root by APFS volume UUID written into the ADT, so a boot-time partition search is not available",
+  "Kernel and root image must be the same build (22H390 here); the root is the iOS 18.7.12 payload and the kernelcache the same-build iPadOS 18.7.12 arm64 one, and builds must never be mixed across Darwin versions",
+  "the payload dmgs are AEA encrypted, so the root image can only be assembled on macOS",
 ]
 completion = [
   "XNU mounts the root volume read-only and starts launchd",
@@ -168,7 +177,8 @@ limits = [
   "No root image has been built or flashed for this device yet",
 ]
 next_action = [
-  "Read the raphael GPT geometry and fill the [userdata] block in board.toml",
+  "Decrypt the iOS 18.7.12 OS dmg on macOS and fill [root] os_volume_uuid and systemos_volume_uuid in the board's OS profile",
+  "Download the payload IPSW once and fill the [ipsw.sha256] member pins",
 ]
 
 # ---------------------------------------------------------------------- display

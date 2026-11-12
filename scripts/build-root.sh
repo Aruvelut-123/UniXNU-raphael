@@ -66,8 +66,15 @@ BUILD_ARGS=()
 echo ">>> unixnu build userdata ${BUILD_ARGS[*]:-}"
 ( cd "$UNIXNU_DIR" && ./unixnu build userdata -D "$REPO_ROOT" "${BUILD_ARGS[@]:-}" )
 
-REPORT="$UNIXNU_DIR/out/raphael/ipados-17.7.11-21H461/raphael/userdata/userdata-root.json"
-IMAGE="$UNIXNU_DIR/out/raphael/ipados-17.7.11-21H461/raphael/userdata/userdata-root.img"
+# The output tree is keyed by the OS profile, so read it from the board instead of
+# hard-coding one profile name here.
+OS_PROFILE=$(sed -n 's/^[[:space:]]*os_profile[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' "$REPO_ROOT/board.toml" | head -1)
+if [ -z "$OS_PROFILE" ]; then
+  echo "error: no [board] os_profile in $REPO_ROOT/board.toml" >&2
+  exit 1
+fi
+REPORT="$UNIXNU_DIR/out/raphael/$OS_PROFILE/raphael/userdata/userdata-root.json"
+IMAGE="$UNIXNU_DIR/out/raphael/$OS_PROFILE/raphael/userdata/userdata-root.img"
 
 if [ "$DRY_RUN" -eq 1 ]; then
   echo "dry run complete; no image written"

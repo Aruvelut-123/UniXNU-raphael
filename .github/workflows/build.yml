@@ -75,6 +75,23 @@ jobs:
           clang --version | head -2
           python3 --version
 
+      - name: Install EDK II toolchain (LLVM + lld)
+        run: |
+          # The EFI package is built with EDK II's CLANGPDB tool chain, which needs
+          # llvm-lib and lld-link. Apple's clang does not ship them.
+          brew install llvm lld
+
+      - name: Install the board's OS profile and stage the arm64 kernelcache
+        run: |
+          # Upstream UniXNU has no 18.x profile: this board carries one and copies
+          # it into the checkout before resolving.
+          python3 "$DEVICE_DIR/scripts/install-device-profile.py" --unixnu "$UNIXNU_DIR"
+          # The payload IPSW is iOS 18 (arm64e kernelcache, unusable on SM8150).
+          # The arm64 kernelcache is staged from the same-build iPadOS 18.7.12
+          # restore of iPad7,11 (A10, no PAC) into the path [kernel.prelink]
+          # names, so it cannot collide with out/ipsw/22H390/.
+          python3 "$DEVICE_DIR/scripts/stage-arm64-kernelcache.py" --unixnu "$UNIXNU_DIR"
+
       - name: Select raphael defconfig and fetch sources
         env:
           GITHUB_TOKEN: ${{ github.token }}
@@ -83,12 +100,12 @@ jobs:
           ./unixnu defconfig raphael_defconfig -D "$DEVICE_DIR"
           ./unixnu fetch -D "$DEVICE_DIR"
 
-      - name: Resolution report (62 ordered patches, arm64 / 17.7.11)
+      - name: Resolution report (ordered patches for the board's OS profile)
         run: |
           cd "$UNIXNU_DIR"
           ./unixnu status --json -D "$DEVICE_DIR" | tee "$GITHUB_WORKSPACE/status.json"
 
-      - name: Build XNU kernel (arm64, ipados-17.7.11-21H461)
+      - name: Build XNU kernel (arm64, board os_profile)
         if: github.event_name != 'workflow_dispatch' || inputs.build_kernel
         run: |
           cd "$UNIXNU_DIR"

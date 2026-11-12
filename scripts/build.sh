@@ -1,5 +1,5 @@
 #!/bin/bash
-# Local build script for UniXNU-raphael-ipados26
+# Local build script for UniXNU-raphael
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

@@ -4,13 +4,21 @@ schema_version = 2
 name = "raphael"
 soc = "SM8150"
 soc_source = "sm8150"
-# raphael (SM8150) CPUs are Cortex-A76/A55 which do NOT implement FEAT_PAuth.
-# Therefore the arm64e profiles (ipados-26/27) cannot be used on this SoC.
-# We use ipados-17.7.11-21H461 (arm64) as the primary target and define a
-# separate ipados-26 profile variant for experimentation only.
-os_profile = "ipados-17.7.11-21H461"
+# raphael (SM8150) CPUs are Cortex-A76/A55 which do NOT implement FEAT_PAuth,
+# so arm64e-only profiles (ipados-26/27) cannot run here. iPadOS 18 still ships
+# an arm64 slice (the 2019 iPad 7 with the same no-PAC A10 runs 18.7.12), so
+# 18.7.12-22H390 / Darwin 24.6.0 is the target.
+#
+# Upstream UniXNU carries no 18.x profile: this repository's own copy lives in
+# os-profiles/<profile>/ and is installed into the UniXNU checkout by
+# scripts/install-device-profile.py before resolving.
+#
+# The profile pins BOTH Apple archives: [ipsw] is the arm64 iPadOS restore the
+# kernel/firmware inputs come from, [payload-ipsw] is the iOS restore whose OS /
+# SystemOS disk images become the root image. Same build number on both sides.
+os_profile = "ipados-18.7.12-22H390"
 kit = "raphael"
-description = "Redmi K20 Pro / Mi 9T Pro (raphael, SM8150) - arm64 port (primary target: ipados-17.7.11). ipados-26 earmarked for ABI research only."
+description = "Redmi K20 Pro / Mi 9T Pro (raphael, SM8150) - arm64 port of iPadOS 18.7.12 (22H390). Kernel from the arm64 iPadOS restore, root image from the iOS 18.7.12 payload."
 
 [components]
 include = ["XnuPrelink", "DarwinBoot", "ArmDTPlatform"]
@@ -30,25 +38,17 @@ unixnu = "../sources/UniXNU-packaging"
 unixnu_repository = "UniXNU/UniXNU"
 unixnu_revision = "main"
 
-# Partition geometry of the root image's home: the dedicated `unixnu`
-# partition (sda34 on this handset), NOT the Android `userdata` one.
-#
-# Measured on raphael (SM8150, 512 GB variant, repartitioned GPT):
-#   /proc/partitions  sda34  134217728 KiB = 128.00 GiB
-#   /dev/block/by-name/unixnu -> /dev/block/sda34
-# lba_bytes = 512 because the values below are raw GPT sectors; XNU's UFS
-# driver seeks by absolute 512-byte LBA, so this keeps one unit everywhere.
-#
-# flags: derived by summing /proc/partitions from LBA 34 (no per-partition
-# gaps observed; the tail of the model lands 5 sectors short of the backup
-# GPT). Verify with:
+# Target of the root image. This is ONE device's GPT geometry — this
+# maintainer's repartitioned 512 GB raphael, where `unixnu` is sda34 (128 GiB).
+# Other handsets differ: re-measure your own disk and overwrite these numbers
+# before flashing. sysfs reports 512-byte sectors:
 #   adb shell su -c "cat /sys/block/sda/sda34/start /sys/block/sda/sda34/size"
+#   last_lba = start + size - 1,  lba_bytes = 512
+# See docs/root-partition.md.
 [userdata]
 first_lba = 718487514
 last_lba = 986922969
 lba_bytes = 512
 
 [package.defconfig]
-"ipados-17.7.11-21H461" = "raphael_defconfig"
-# ipados-26.5.2-23F84 is NOT mapped on SM8150 (no FEAT_PAuth support).
-# Define arm64e profile here only if PAC hardware is available.
+"ipados-18.7.12-22H390" = "raphael_defconfig"
