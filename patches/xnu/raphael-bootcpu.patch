@@ -1,17 +1,24 @@
+diff --git a/iokit/KernelConfigTables.cpp b/iokit/KernelConfigTables.cpp
+index 559a9db..613f1ff 100644
 --- a/iokit/KernelConfigTables.cpp
 +++ b/iokit/KernelConfigTables.cpp
-@@ -35,7 +35,7 @@
+@@ -35,6 +35,11 @@
  const char * gIOKernelConfigTables =
      "("
      "   {"
--    "     'IOClass'         = ArmCpu;"
 +    "     'IOClass'         = RaphaelBootCpu;"
-     "     'IOProviderClass' = IOPlatformDevice;"
-     "     'IOProbeScore'    = 2000:32;"
-     "   },"
++    "     'IOProviderClass' = IOPlatformDevice;"
++    "     'IOProbeScore'    = 2000:32;"
++    "   },"
++    "   {"
+     "     'IOClass'         = IOPanicPlatform;"
+     "     'IOProviderClass' = IOPlatformExpertDevice;"
+     "     'IOProbeScore'    = 0:32;"
+diff --git a/osfmk/arm64/machine_routines.c b/osfmk/arm64/machine_routines.c
+index cbb494a..ecae6fc 100644
 --- a/osfmk/arm64/machine_routines.c
 +++ b/osfmk/arm64/machine_routines.c
-@@ -2163,6 +2163,27 @@
+@@ -2339,6 +2339,27 @@ ml_interrupt_prewarm(__unused uint64_t deadline)
  /*
   * Assumes fiq, irq disabled.
   */
@@ -19,34 +26,34 @@
 +unsigned int raphael_timer_physical;
 +static void raphael_set_physical_decrementer(uint32_t value)
 +{
-+    __builtin_arm_wsr64("CNTP_TVAL_EL0", (uint64_t)value);
-+    __builtin_arm_isb(ISB_SY);
++	__builtin_arm_wsr64("CNTP_TVAL_EL0", (uint64_t)value);
++	__builtin_arm_isb(ISB_SY);
 +}
 +static uint32_t raphael_get_physical_decrementer(void)
 +{
-+    return (uint32_t)__builtin_arm_rsr64("CNTP_TVAL_EL0");
++	return (uint32_t)__builtin_arm_rsr64("CNTP_TVAL_EL0");
 +}
 +kern_return_t raphael_select_boot_timer(unsigned int physical)
 +{
-+    cpu_data_t *cdp = getCpuDatap();
-+    if (physical > 1 || cdp != &BootCpuData) { return KERN_INVALID_ARGUMENT; }
-+    cdp->cpu_set_decrementer_func = physical ? raphael_set_physical_decrementer : NULL;
-+    cdp->cpu_get_decrementer_func = physical ? raphael_get_physical_decrementer : NULL;
-+    raphael_timer_physical = physical;
-+    return KERN_SUCCESS;
++	cpu_data_t *cdp = getCpuDatap();
++	if (physical > 1) { return KERN_INVALID_ARGUMENT; }
++	cdp->cpu_set_decrementer_func = physical ? raphael_set_physical_decrementer : NULL;
++	cdp->cpu_get_decrementer_func = physical ? raphael_get_physical_decrementer : NULL;
++	raphael_timer_physical = physical;
++	return KERN_SUCCESS;
 +}
 +
  void
  ml_set_decrementer(uint32_t dec_value)
  {
-@@ -2315,7 +2336,9 @@
+@@ -2496,7 +2517,9 @@ ml_get_decrementer(void)
  boolean_t
  ml_get_timer_pending(void)
  {
--	uint64_t cntv_ctl = __builtin_arm_rsr64("CNTV_CTL_EL0");
+-	uint64_t cntv_ctl = __builtin_arm_rsr64(KERNEL_CNTV_CTL_EL0);
 +	uint64_t cntv_ctl = raphael_timer_physical
 +	    ? __builtin_arm_rsr64("CNTP_CTL_EL0")
-+	    : __builtin_arm_rsr64("CNTV_CTL_EL0");
++	    : __builtin_arm_rsr64(KERNEL_CNTV_CTL_EL0);
  	return ((cntv_ctl & CNTV_CTL_EL0_ISTATUS) != 0) ? TRUE : FALSE;
  }
  

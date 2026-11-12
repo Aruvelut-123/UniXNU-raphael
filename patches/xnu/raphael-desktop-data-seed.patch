@@ -1,7 +1,8 @@
+diff --git a/bsd/kern/kern_exec.c b/bsd/kern/kern_exec.c
+index 70cb1eb..04c2f45 100644
 --- a/bsd/kern/kern_exec.c
 +++ b/bsd/kern/kern_exec.c
-@@ -7189,8 +7189,9 @@
- extern dev_t mdevlookup(int);
+@@ -7309,6 +7309,7 @@ extern dev_t mdevlookup(int);
  extern int mdevgetrange(int, uint64_t *, uint64_t *);
  volatile int native_owner_data_status = -1;
  volatile int native_owner_data_stage = 0;
@@ -9,9 +10,7 @@
  volatile int native_owner_data_readonly = -1;
  volatile dev_t native_owner_data_device = NODEV;
  uint64_t native_owner_data_seed_base, native_owner_data_seed_size;
- uint8_t native_owner_data_seed_sha256[32];
-@@ -8019,8 +8020,14 @@
- 	    (error = copyout("/private/var", request.path, 13)) ||
+@@ -7359,6 +7360,12 @@ native_owner_data_prepare(proc_t p, user_addr_t scratch)
  	    (error = copyout(device_path, spec, strlen(device_path) + 1)) ||
  	    (error = copyout(payload, request.data, sizeof(payload)))) goto done;
  	native_owner_data_stage = 2;
@@ -24,9 +23,7 @@
  	error = mount(p, &request, &result);
  	if (error) goto done;
  	native_owner_data_stage = 3;
- 	error = vnode_lookup("/private/var", 0, &data_root, vfs_context_current());
-@@ -8185,8 +8192,12 @@
- #endif
+@@ -7831,6 +7838,10 @@ load_init_program(proc_t p)
  #if defined(XNU_OWNER_DATA_MOUNT) && XNU_OWNER_DATA_MOUNT
  	int data_error = native_owner_data_prepare(p, (user_addr_t)scratch_addr);
  	if (data_error) panic("offline scratch Data mount failed: %d", data_error);
@@ -35,6 +32,5 @@
 +	data_error = raphael_seed_default_var(p, (user_addr_t)scratch_addr);
 +	if (data_error) panic("raphael scratch Data seed failed: %d", data_error);
  #endif
- #if CONFIG_MEMORYSTATUS
- 	(void) memorystatus_init_at_boot_snapshot();
- #endif /* CONFIG_MEMORYSTATUS */
+ 	/* Use the opportunity to initialize exec's debug log stream */
+ 	exec_log_handle = os_log_create("com.apple.xnu.bsd", "exec");

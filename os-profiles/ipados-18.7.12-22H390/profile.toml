@@ -106,10 +106,17 @@ windows = [{ name = "OS", component = "OS" }, { name = "SystemOS", component = "
 # burning a wrong UUID into the kernel.
 os_volume_uuid = ""
 systemos_volume_uuid = ""
-
 [kernel.prelink]
 tool = "kits/XnuPrelink/emit_prelink.py"
-kernel = "build/xnu/ios-obj/DEVELOPMENT_ARM64_RAPHAEL/mach.development.raphael.unstripped.noctf"
+# CI checks out upstream UniXNU origin/main, whose build-xnu-4k-baseline.sh still
+# uses MACHINE_CONFIGS=BCM2837 (a local RAPHAEL rename cannot be pushed: 403).
+# Rather than depend on an unreachable upstream edit, the device patch series
+# REVIVES BCM2837 on xnu-11417 (patches/xnu-darwin24/machine-config-bcm2837.patch:
+# registers it in SUPPORTED_ARM64_MACHINE_CONFIGS, adds config/MASTER.arm64.bcm2837,
+# pexpert/pexpert/arm64/BCM2837.h, board_config/proc_reg/files.arm64 hooks). So the
+# kernel is built into the path upstream's own script and kernel.py already name.
+kernel = "build/xnu/ios-obj/DEVELOPMENT_ARM64_BCM2837/mach.development.bcm2837.unstripped.noctf"
+
 # Staged by scripts/stage-arm64-kernelcache.py from the iPadOS 18.7.12 (j171ap,
 # A10 / no PAC) kernelcache. It is deliberately NOT out/ipsw/22H390/, which is
 # where ipsw.kernelcache() would put the arm64e iOS one under the same build ID.
