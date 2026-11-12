@@ -137,6 +137,42 @@ jobs:
           echo '  fastboot flash unixnu userdata-root.img' >> dist/FLASH.txt
           ls -lh dist/
 
+      # A Release rejects any single asset of 2 GiB or more:
+      #   Validation Failed: {"resource":"ReleaseAsset","field":"size",
+      #   "message":"size must be less than 2147483648"}
+      # The images are 7.85 GiB, so the Release can only carry them as parts.
+      - name: Split the images for the release
+        if: startsWith(github.ref, 'refs/tags/v') || inputs.reuse_release_tag != ''
+        run: |
+          mkdir -p release
+          for image in dist/unixnu.sparse dist/userdata-root.img; do
+            [ -f "$image" ] || continue
+            python3 "$DEVICE_DIR/scripts/ipsw_split.py" split \
+              --input "$image" --output-dir release
+          done
+          # A short note the downloader reads first.
+          {
+            echo 'The images are split because GitHub Releases cap a single'
+            echo 'asset at 2 GiB (2147483648 bytes). Rejoin them and check the'
+            echo 'sha256 the manifest printed before flashing.'
+            echo ''
+            echo '  cat unixnu.sparse.part* > unixnu.sparse'
+            echo '  sha256sum unixnu.sparse'
+            echo ''
+            echo 'Or use the helper, which verifies every part as it joins:'
+            echo ''
+            echo '  python3 ipsw_split.py join --manifest unixnu.sparse.parts.json --output unixnu.sparse'
+            echo ''
+            echo 'Then:'
+            echo ''
+            echo '  fastboot flash unixnu unixnu.sparse'
+            echo ''
+            echo 'Prefer whole files and have a GitHub account? The unixnu-sparse'
+            echo 'and unixnu-root-image artifacts of the same run are not split.'
+          } > release/README.txt
+          cp -v dist/userdata-root.json release/ 2>/dev/null || true
+          ls -lh release/
+
       - name: Upload raw root image
         uses: actions/upload-artifact@v4
         with:
@@ -155,35 +191,66 @@ jobs:
           retention-days: 30
 
       # Publish so the image can be fetched without a GitHub account.
+      # Only the parts and the small files go here: the whole images are over
+      # the 2 GiB release-asset ceiling and would fail the upload outright.
       - name: Publish release assets
         if: startsWith(github.ref, 'refs/tags/v') || inputs.reuse_release_tag != ''
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ inputs.reuse_release_tag || github.ref_name }}
           files: |
-            dist/userdata-root.img
-            dist/userdata-root.json
-            dist/unixnu.sparse
+            release/*
             dist/FLASH.txt
           generate_release_notes: false
+          body: |
+            Root images for raphael (Redmi K20 Pro / Mi 9 T Pro, SM8150),
+            iPadOS 18.7.12 / build 22H390 / Darwin 24.6.0.
+
+            Flash into the `unixnu` partition:
+
+            ```sh
+            # rejoin the parts first (the images are over GitHub's 2 GiB limit)
+            cat unixnu.sparse.part* > unixnu.sparse
+            sha256sum unixnu.sparse   # must match unixnu.sparse.parts.json
+            fastboot flash unixnu unixnu.sparse
+            ```
+
+            `userdata-root.json` records the per-window sha256 and the manifest
+            layout, so the flash can be verified afterwards. The image holds the
+            unmodified iOS 18.7.12 `OS` and `Cryptex1,SystemOS` disks.
 
       - name: Summary
         run: |
           {
             echo "### Root image"
-            echo ""
-            echo '| file | size |'
-            echo '| --- | --- |'
-            for f in dist/*.img dist/*.sparse; do
-              [ -f "$f" ] && printf '| `%s` | %s |\n' "$(basename "$f")" "$(du -h "$f" | cut -f1)"
-            done
-            echo ""
-            echo 'Flash into the `unixnu` partition:'
-            echo ''
-            echo '```sh'
-            echo 'fastboot flash unixnu unixnu.sparse'
-            echo '```'
-            echo ""
-            echo 'The `userdata-root.json` beside it records the per-window sha256 and'
-            echo 'the manifest so the flash can be verified afterwards.'
-          } >> "$GITHUB_STEP_SUMMARY"
+             echo ""
+             echo '| file | size |'
+             echo '| --- | --- |'
+             for f in dist/*.img dist/*.sparse; do
+               [ -f "$f" ] && printf '| `%s` | %s |\n' "$(basename "$f")" "$(du -h "$f" | cut -f1)"
+             done
+             echo ""
+             if [ -d release ]; then
+               echo 'Release parts (each under the 2 GiB asset limit):'
+               echo ''
+               echo '| part | size |'
+               echo '| --- | --- |'
+               for f in release/*.part*; do
+                 [ -f "$f" ] && printf '| `%s` | %s |\n' "$(basename "$f")" "$(du -h "$f" | cut -f1)"
+               done
+               echo ''
+             fi
+             echo 'Flash into the `unixnu` partition:'
+             echo ''
+             echo '```sh'
+             echo 'cat unixnu.sparse.part* > unixnu.sparse'
+             echo 'sha256sum unixnu.sparse   # must match unixnu.sparse.parts.json'
+             echo 'fastboot flash unixnu unixnu.sparse'
+             echo '```'
+             echo ""
+             echo 'The `userdata-root.json` beside it records the per-window sha256 and'
+             echo 'the manifest so the flash can be verified afterwards.'
+             echo ""
+             echo 'Artifacts (`unixnu-sparse`, `unixnu-root-image`) carry the same images'
+             echo 'whole; they need a GitHub account to download.'
+           } >> "$GITHUB_STEP_SUMMARY"
