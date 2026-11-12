@@ -54,7 +54,24 @@ jobs:
     # anywhere else.
     runs-on: macos-26
     timeout-minutes: 240
+    outputs:
+      publishes_release: ${{ steps.mode.outputs.publishes_release }}
     steps:
+      - name: Decide what this run produces
+        id: mode
+        run: |
+          # A tag push, or a manual run that names an existing tag, publishes a
+          # Release. `inputs.*` is empty on a tag push, so test the ref first.
+          if [ "${{ github.event_name }}" = "push" ] && [ "${{ startsWith(github.ref, 'refs/tags/v') }}" = "true" ]; then
+            publishes_release=true
+          elif [ -n "${{ inputs.reuse_release_tag }}" ]; then
+            publishes_release=true
+          else
+            publishes_release=false
+          fi
+          echo "publishes_release=$publishes_release" >> "$GITHUB_OUTPUT"
+          echo "publishes_release=$publishes_release"
+
       - name: Checkout device repository
         uses: actions/checkout@v4
         with:
@@ -142,7 +159,7 @@ jobs:
       #   "message":"size must be less than 2147483648"}
       # The images are 7.85 GiB, so the Release can only carry them as parts.
       - name: Split the images for the release
-        if: startsWith(github.ref, 'refs/tags/v') || inputs.reuse_release_tag != ''
+        if: ${{ steps.mode.outputs.publishes_release == 'true' }}
         run: |
           mkdir -p release
           for image in dist/unixnu.sparse dist/userdata-root.img; do
@@ -173,7 +190,14 @@ jobs:
           cp -v dist/userdata-root.json release/ 2>/dev/null || true
           ls -lh release/
 
+      # Artifacts and the release carry the same bytes, and the release is the one
+      # that downloads without an account. So when a release is published, upload
+      # only that: a duplicate artifact would just spend the runner's time and the
+      # repository's artifact quota. A manual run with no tag still gets
+      # artifacts, which is what the dry runs want; setting skip_artifacts on a
+      # manual run with no release is therefore a no-op by design.
       - name: Upload raw root image
+        if: ${{ steps.mode.outputs.publishes_release != 'true' && !inputs.skip_sparse }}
         uses: actions/upload-artifact@v4
         with:
           name: unixnu-root-image
@@ -182,7 +206,7 @@ jobs:
           retention-days: 30
 
       - name: Upload sparse root image
-        if: ${{ !inputs.skip_sparse }}
+        if: ${{ steps.mode.outputs.publishes_release != 'true' && !inputs.skip_sparse }}
         uses: actions/upload-artifact@v4
         with:
           name: unixnu-sparse
@@ -194,7 +218,7 @@ jobs:
       # Only the parts and the small files go here: the whole images are over
       # the 2 GiB release-asset ceiling and would fail the upload outright.
       - name: Publish release assets
-        if: startsWith(github.ref, 'refs/tags/v') || inputs.reuse_release_tag != ''
+        if: ${{ steps.mode.outputs.publishes_release == 'true' }}
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ inputs.reuse_release_tag || github.ref_name }}
