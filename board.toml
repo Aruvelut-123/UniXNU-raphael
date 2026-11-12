@@ -30,7 +30,7 @@ config_fragments = ["arch:configs/common.config", "soc:configs/sm8150.config"]
 # series no longer applies. The xnu-darwin24 series re-derives the same 15 patches
 # against xnu-11417 (12 file changes; timer-entry / trust-cache / freezer hunks have
 # no object on Darwin 24 and are intentionally omitted). See patches/xnu-darwin24/.
-patch_series = ["arch:patches/xnu-darwin24.series", "soc:patches/xnu/series", "device:patches/xnu/os-bootstrap.series", "device:patches/xnu/series"]
+patch_series = ["device:patches/xnu-darwin24.series", "soc:patches/xnu/series", "device:patches/xnu/os-bootstrap.series", "device:patches/xnu/series"]
 archives = ["build-corecrypto-14.py", "build-corecrypto-14.py --namespace", "build-raphael-cpu.py", "build-raphael-pthread.py"]
 
 [device_tree]
