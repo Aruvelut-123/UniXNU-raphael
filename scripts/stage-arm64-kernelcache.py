@@ -70,6 +70,9 @@ def decompress(ipsw_module, Error, log, lzfse, spec, destination, record_path):
     source = ipsw_module.Ipsw(ctx, spec)
     payload = ipsw_module.im4p_payload(source.read('KernelCache'))
     log(f'kernelcache: {MEMBER}, {len(payload) >> 20} MiB IM4P payload')
+    # The output tree does not exist on a fresh checkout; TemporaryDirectory(dir=...)
+    # needs its parent before it can create anything inside it.
+    destination.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(dir=destination.parent, prefix='.kc-') as work:
         workdir = Path(work)
         packed = workdir / 'kernelcache.lzfse'

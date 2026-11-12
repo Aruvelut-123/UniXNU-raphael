@@ -66,15 +66,15 @@ BUILD_ARGS=()
 echo ">>> unixnu build userdata ${BUILD_ARGS[*]:-}"
 ( cd "$UNIXNU_DIR" && ./unixnu build userdata -D "$REPO_ROOT" "${BUILD_ARGS[@]:-}" )
 
-# The output tree is keyed by the OS profile, so read it from the board instead of
-# hard-coding one profile name here.
-OS_PROFILE=$(sed -n 's/^[[:space:]]*os_profile[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' "$REPO_ROOT/board.toml" | head -1)
-if [ -z "$OS_PROFILE" ]; then
-  echo "error: no [board] os_profile in $REPO_ROOT/board.toml" >&2
+# ctx.work is out/<board name> (config.py:146), and userdata.py:paths() puts the
+# image under <work>/userdata. The OS profile does not appear in the path.
+BOARD_NAME=$(sed -n 's/^[[:space:]]*name[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' "$REPO_ROOT/board.toml" | head -1)
+if [ -z "$BOARD_NAME" ]; then
+  echo "error: no [board] name in $REPO_ROOT/board.toml" >&2
   exit 1
 fi
-REPORT="$UNIXNU_DIR/out/raphael/$OS_PROFILE/raphael/userdata/userdata-root.json"
-IMAGE="$UNIXNU_DIR/out/raphael/$OS_PROFILE/raphael/userdata/userdata-root.img"
+REPORT="$UNIXNU_DIR/out/$BOARD_NAME/userdata/userdata-root.json"
+IMAGE="$UNIXNU_DIR/out/$BOARD_NAME/userdata/userdata-root.img"
 
 if [ "$DRY_RUN" -eq 1 ]; then
   echo "dry run complete; no image written"

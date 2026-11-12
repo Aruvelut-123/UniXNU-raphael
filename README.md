@@ -77,23 +77,33 @@ inspection and manual payload assembly.
 Tag `v*` publishes all three to a GitHub Release; every other push uploads them
 as workflow artifacts (`unixnu-efi`, `unixnu-bootimg`, `unixnu-kernel`).
 
-## Root partition: unixnu first, userdata as fallback
+## Root image: build it, then flash it yourself
 
-UniXNU selects the root volume by **APFS Volume UUID written into the ADT**, not
-by partition label. A boot-time "try A then B" search is not implemented
-upstream, so the preference is applied at **flash time**:
+The root image is the **raw `SHNGROOT` image** UniXNU writes into the `unixnu`
+partition. Two things produce it:
+
+| Where | What it does |
+| --- | --- |
+| `.github/workflows/root-image.yml` | macOS runner. Builds `userdata-root.img`, converts it to `unixnu.sparse`, uploads both as artifacts, and publishes them as **Release assets on tag pushes** (no GitHub login needed to download) |
+| `scripts/build-root.sh` locally | Same image on your own machine, plus `--flash` to write it to `unixnu` (falling back to `userdata`) |
 
 ```sh
-# Builds the root image and prints the target it would use.
-scripts/build-root.sh --ipsw restore.ipsw --dry-run
+# Locally: build and print the target, then build and flash.
+scripts/build-root.sh --dry-run
+scripts/build-root.sh --flash
 
-# Builds and flashes to `unixnu` if that partition exists, else `userdata`.
-scripts/build-root.sh --ipsw restore.ipsw --flash
+# On the handset, from a downloaded release asset:
+fastboot flash unixnu unixnu.sparse
 ```
 
-Detection order: `/dev/disk/by-partlabel/{unixnu,userdata}` then
-`/dev/block/by-name/{unixnu,userdata}`. Details and the limitation of doing this
-at boot time are in [docs/root-partition.md](docs/root-partition.md).
+Both run `./unixnu build userdata` on **macOS**, because the 22H390 payload dmgs
+are AEA encrypted (`/usr/bin/aea` + `ipsw fw aea --key`). On Linux only the
+`--dry-run` works; `scripts/ipsw_to_sparse.py` cannot decrypt AEA and says so
+instead of emitting a broken image.
+
+The build prints the exact image size and refuses to write when the image would
+not fit the `[userdata]` geometry, so a wrong partition plan fails loudly
+instead of overwriting a neighbour.
 
 ### Payload size
 

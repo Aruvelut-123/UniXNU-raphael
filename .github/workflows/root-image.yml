@@ -1,0 +1,174 @@
+name: Build root image (userdata / unixnu)
+
+# Builds the root image that gets flashed into the `unixnu` partition and
+# publishes it as a Release asset, so it can be downloaded without logging in
+# to GitHub or to Apple.
+#
+# WHY macOS AND NOT LINUX
+#   Both 22H390 restores (iOS for the payload, iPadOS for the kernelcache) ship
+#   their OS / SystemOS disk images as `.dmg.aea`. UniXNU decrypts those with
+#   macOS `/usr/bin/aea` plus `ipsw fw aea --key`; on Linux `Ipsw.disk_image()`
+#   raises instead of half-reading them. `.github/workflows/ipsw-convert.yml`
+#   stays for UDIF-only images and cannot handle this build.
+#
+# WHAT IT PRODUCES
+#   out/raphael/userdata/userdata-root.img  -- the raw SHNGROOT image, and
+#   unixnu.sparse                            -- the same image as libsparse
+#   chunks that `fastboot flash unixnu <file>` accepts.
+#
+# The payload is read straight from Apple's CDN over HTTPS range requests, so
+# nothing is checked in. A Release is created only for tag pushes; a manual
+# dispatch uploads the artifacts and prints the raw sizes.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      reuse_release_tag:
+        description: "Existing tag whose release should receive the images (empty = artifacts only)"
+        required: false
+        default: ""
+      skip_sparse:
+        description: "Only build the raw image, skip the sparse conversion"
+        type: boolean
+        required: false
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: unixnu-raphael-root-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  DEVICE_DIR: ${{ github.workspace }}/device
+  UNIXNU_DIR: ${{ github.workspace }}/UniXNU
+  UNIXNU_DEVICE: ${{ github.workspace }}/device
+  HOMEBREW_NO_AUTO_UPDATE: 1
+  GITHUB_TOKEN: ${{ github.token }}
+
+jobs:
+  root-image:
+    # macOS for /usr/bin/aea and hdiutil; the root image cannot be assembled
+    # anywhere else.
+    runs-on: macos-26
+    timeout-minutes: 240
+    steps:
+      - name: Checkout device repository
+        uses: actions/checkout@v4
+        with:
+          path: device
+
+      - name: Checkout UniXNU
+        uses: actions/checkout@v4
+        with:
+          repository: UniXNU/UniXNU
+          ref: main
+          path: UniXNU
+          submodules: recursive
+          persist-credentials: false
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install AEA tooling
+        run: |
+          # UniXNU's decrypt_aea() shells out to both of these.
+          brew install blacktop/tap/ipsw
+          /usr/bin/aea -h >/dev/null 2>&1 && echo "aea present" || echo "::warning::/usr/bin/aea missing on this runner"
+
+      - name: Install the board's OS profile
+        run: python3 "$DEVICE_DIR/scripts/install-device-profile.py" --unixnu "$UNIXNU_DIR"
+
+      - name: Resolve the board
+        run: |
+          cd "$UNIXNU_DIR"
+          ./unixnu defconfig raphael_defconfig -D "$DEVICE_DIR"
+          ./unixnu status -D "$DEVICE_DIR" | tail -20
+
+      - name: Check the payload sizes before downloading
+        run: |
+          cd "$UNIXNU_DIR"
+          ./unixnu build userdata --dry-run -D "$DEVICE_DIR"
+
+      - name: Build the root image
+        run: |
+          cd "$UNIXNU_DIR"
+          # No --ipsw: the OS profile's [ipsw] is the iOS 18.7.12 payload.
+          ./unixnu build userdata -D "$DEVICE_DIR"
+          ls -lh "out/raphael/userdata/"
+
+      - name: Convert to a sparse image
+        if: ${{ !inputs.skip_sparse }}
+        run: |
+          cd "$DEVICE_DIR"
+          python3 scripts/ipsw_to_sparse.py \
+            --raw-image "$UNIXNU_DIR/out/raphael/userdata/userdata-root.img" \
+            --output "$GITHUB_WORKSPACE/unixnu.sparse"
+          ls -lh "$GITHUB_WORKSPACE/unixnu.sparse"
+
+      - name: Collect products
+        run: |
+          mkdir -p dist
+          cp -v "$UNIXNU_DIR/out/raphael/userdata/userdata-root.img" dist/
+          cp -v "$UNIXNU_DIR/out/raphael/userdata/userdata-root.json" dist/ 2>/dev/null || true
+          if [ -f "$GITHUB_WORKSPACE/unixnu.sparse" ]; then cp -v "$GITHUB_WORKSPACE/unixnu.sparse" dist/; fi
+          echo '--- flash it yourself, there is no --flash in CI ---' > dist/FLASH.txt
+          echo '  fastboot flash unixnu unixnu.sparse' >> dist/FLASH.txt
+          echo '  # or the raw image, if you prefer:' >> dist/FLASH.txt
+          echo '  fastboot flash unixnu userdata-root.img' >> dist/FLASH.txt
+          ls -lh dist/
+
+      - name: Upload raw root image
+        uses: actions/upload-artifact@v4
+        with:
+          name: unixnu-root-image
+          path: dist/userdata-root.img
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload sparse root image
+        if: ${{ !inputs.skip_sparse }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: unixnu-sparse
+          path: dist/unixnu.sparse
+          if-no-files-found: warn
+          retention-days: 30
+
+      # Publish so the image can be fetched without a GitHub account.
+      - name: Publish release assets
+        if: startsWith(github.ref, 'refs/tags/v') || inputs.reuse_release_tag != ''
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.reuse_release_tag || github.ref_name }}
+          files: |
+            dist/userdata-root.img
+            dist/userdata-root.json
+            dist/unixnu.sparse
+            dist/FLASH.txt
+          generate_release_notes: false
+
+      - name: Summary
+        run: |
+          {
+            echo "### Root image"
+            echo ""
+            echo '| file | size |'
+            echo '| --- | --- |'
+            for f in dist/*.img dist/*.sparse; do
+              [ -f "$f" ] && printf '| `%s` | %s |\n' "$(basename "$f")" "$(du -h "$f" | cut -f1)"
+            done
+            echo ""
+            echo 'Flash into the `unixnu` partition:'
+            echo ''
+            echo '```sh'
+            echo 'fastboot flash unixnu unixnu.sparse'
+            echo '```'
+            echo ""
+            echo 'The `userdata-root.json` beside it records the per-window sha256 and'
+            echo 'the manifest so the flash can be verified afterwards.'
+          } >> "$GITHUB_STEP_SUMMARY"
