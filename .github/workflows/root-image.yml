@@ -237,6 +237,7 @@ jobs:
         if: ${{ steps.mode.outputs.publishes_release == 'true' }}
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
           TAG: ${{ inputs.reuse_release_tag || github.ref_name }}
         run: |
           set -uo pipefail
