@@ -1,5 +1,10 @@
-name: Build UniXNU EFI and Firmware
+name: Build UniXNU (EFI / kernel / boot image)
 
+# The device repository is checked out into ./device, and upstream UniXNU into
+# ./UniXNU. UNIXNU_DEVICE points every ./unixnu invocation at the device tree.
+# macOS-26 is used because upstream UniXNU only supports the Xcode toolchain
+# for the XNU kernel step; scripts/linux/setup-toolchain.py builds a patched
+# LLVM from source and is not suitable for a hosted Linux runner.
 on:
   push:
     branches: [main]
@@ -7,92 +12,129 @@ on:
   pull_request:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      build_kernel:
+        description: "Build the XNU kernel (Xcode toolchain, macOS-26)"
+        type: boolean
+        required: false
+        default: true
+      uefi_repository:
+        description: "Optional Mu-Silicium UEFI checkout (owner/name) required for firmware + boot.img"
+        required: false
+        default: ""
+      uefi_ref:
+        description: "Ref of the optional UEFI checkout"
+        required: false
+        default: "main"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: unixnu-raphael-${{ github.ref }}
+  cancel-in-progress: false
 
 env:
-  UEFI_DIR: uefi-raphael
-  DEVICE_DIR: UniXNU-raphael-ipados26
+  DEVICE_DIR: ${{ github.workspace }}/device
+  UNIXNU_DIR: ${{ github.workspace }}/UniXNU
+  UNIXNU_DEVICE: ${{ github.workspace }}/device
+  DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
+  HOMEBREW_NO_AUTO_UPDATE: 1
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: macos-26
+    timeout-minutes: 360
     steps:
-      - name: Checkout
+      - name: Checkout device repository
         uses: actions/checkout@v4
         with:
+          path: device
+
+      - name: Checkout UniXNU
+        uses: actions/checkout@v4
+        with:
+          repository: UniXNU/UniXNU
+          ref: main
+          path: UniXNU
+          submodules: recursive
+          persist-credentials: false
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Show toolchain
+        run: |
+          xcodebuild -version || true
+          clang --version | head -2
+          python3 --version
+
+      - name: Select raphael defconfig and fetch sources
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          cd "$UNIXNU_DIR"
+          ./unixnu defconfig raphael_defconfig -D "$DEVICE_DIR"
+          ./unixnu fetch -D "$DEVICE_DIR"
+
+      - name: Resolution report (62 ordered patches, arm64 / 17.7.11)
+        run: |
+          cd "$UNIXNU_DIR"
+          ./unixnu status --json -D "$DEVICE_DIR" | tee "$GITHUB_WORKSPACE/status.json"
+
+      - name: Build XNU kernel (arm64, ipados-17.7.11-21H461)
+        if: github.event_name != 'workflow_dispatch' || inputs.build_kernel
+        run: |
+          cd "$UNIXNU_DIR"
+          ./unixnu build kernel -D "$DEVICE_DIR"
+
+      - name: Build UniXNU EFI application
+        run: |
+          cd "$UNIXNU_DIR"
+          ./unixnu build package -D "$DEVICE_DIR"
+
+      - name: Checkout optional UEFI firmware tree
+        if: inputs.uefi_repository != ''
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ inputs.uefi_repository }}
+          ref: ${{ inputs.uefi_ref }}
+          path: uefi-raphael
           submodules: recursive
 
-      - name: Install Linux toolchain packages
+      - name: Build firmware volume and boot.img
+        if: inputs.uefi_repository != ''
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            git patch flex bison bzip2 cpio rsync curl wget ca-certificates \
-            tcsh unifdef cmake clang lld mtools build-essential pkg-config \
-            ninja-build python3 python3-dev xz-utils libssl-dev zlib1g-dev \
-            libbsd-dev uuid-dev llvm-dev libclang-dev device-tree-compiler
+          cd "$UNIXNU_DIR"
+          ./unixnu build firmware -D "$DEVICE_DIR" --uefi "$GITHUB_WORKSPACE/uefi-raphael"
+          ./unixnu bootimg -D "$DEVICE_DIR" --uefi "$GITHUB_WORKSPACE/uefi-raphael"
 
-      - name: Clone UniXNU
+      - name: Boot image availability
         run: |
-          git clone --recurse-submodules https://github.com/UniXNU/UniXNU.git UniXNU
-
-      - name: Select device and fetch sources
-        run: |
-          cd UniXNU
-          ./unixnu defconfig raphael_defconfig -D "../${DEVICE_DIR}"
-          ./unixnu fetch
-
-      - name: Show resolution
-        run: |
-          cd UniXNU
-          ./unixnu status --json | tee status.json
-
-      - name: Build kernel (ipados-17.7.11, arm64)
-        run: |
-          cd UniXNU
-          ./unixnu kernel -D "../${DEVICE_DIR}"
-
-      - name: Build EFI package
-        run: |
-          cd UniXNU
-          ./unixnu package -D "../${DEVICE_DIR}"
-
-      - name: Check for UEFI checkout
-        id: uefi
-        run: |
-          if [ -d "../${UEFI_DIR}" ]; then
-            echo "present=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "present=false" >> "$GITHUB_OUTPUT"
-            echo "::notice::No uefi-raphael checkout; skipping firmware build."
+          if [ -z "${{ inputs.uefi_repository }}" ]; then
+            echo "::notice::boot.img needs a Mu-Silicium uefi-raphael checkout plus board.toml [firmware]/[payload]; dispatch this workflow with uefi_repository to build it."
           fi
-
-      - name: Build firmware
-        if: steps.uefi.outputs.present == 'true'
-        run: |
-          cd UniXNU
-          ./unixnu build firmware -D "../${DEVICE_DIR}" --uefi "../${UEFI_DIR}"
-
-      - name: Pack boot image
-        run: |
-          cd UniXNU
-          ./unixnu bootimg -D "../${DEVICE_DIR}"
 
       - name: Collect products
         run: |
           mkdir -p dist
-          find UniXNU/out -name 'UniXNU.efi' -exec cp -v {} dist/ \;
-          find UniXNU/out -name 'boot.img'   -exec cp -v {} dist/ \;
-          find UniXNU/out -name 'kernel.macho' -exec cp -v {} dist/ \;
+          find "$UNIXNU_DIR/out" -name 'UniXNU.efi'   -exec cp -v {} dist/ \;
+          find "$UNIXNU_DIR/out" -name 'kernel.macho' -exec cp -v {} dist/ \;
+          find "$UNIXNU_DIR/out" -name 'boot.img'     -exec cp -v {} dist/ \;
+          cp -v "$GITHUB_WORKSPACE/status.json" dist/
           ls -lh dist/
 
-      - name: Upload EFI
+      - name: Upload UniXNU.efi
         uses: actions/upload-artifact@v4
         with:
           name: unixnu-efi
           path: dist/UniXNU.efi
-          if-no-files-found: warn
+          if-no-files-found: error
           retention-days: 30
 
-      - name: Upload boot image
+      - name: Upload boot.img
         uses: actions/upload-artifact@v4
         with:
           name: unixnu-bootimg
@@ -100,7 +142,7 @@ jobs:
           if-no-files-found: warn
           retention-days: 30
 
-      - name: Upload kernel
+      - name: Upload kernel.macho
         uses: actions/upload-artifact@v4
         with:
           name: unixnu-kernel
@@ -108,6 +150,15 @@ jobs:
           if-no-files-found: warn
           retention-days: 30
 
+      - name: Upload resolution report
+        uses: actions/upload-artifact@v4
+        with:
+          name: unixnu-status
+          path: dist/status.json
+          if-no-files-found: warn
+          retention-days: 30
+
+      # Two separately published primary products: boot.img and UniXNU.efi.
       - name: Publish release
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
@@ -116,4 +167,5 @@ jobs:
             dist/UniXNU.efi
             dist/boot.img
             dist/kernel.macho
+            dist/status.json
           generate_release_notes: true

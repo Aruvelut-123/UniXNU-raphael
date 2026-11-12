@@ -1,42 +1,104 @@
 name: Convert IPSW to Sparse Image
 
+# Converts an IPSW root disk image into an Android sparse image that fastboot
+# can flash into the raphael `unixnu` (preferred) or `userdata` partition.
+# The converter reuses UniXNU's scripts/unixnu/udif.py, so UniXNU is checked
+# out beside this repository and UNIXNU_DIR points at it.
 on:
   workflow_dispatch:
     inputs:
       ipsw_url:
-        description: 'URL to IPSW file (or leave empty to use manual upload)'
+        description: "URL to the iPadOS 17.7.11 (21H461) IPSW; empty = use raw_image"
         required: false
+        default: ""
+      member:
+        description: "IPSW member to convert (empty = largest .dmg, usually the OS image)"
+        required: false
+        default: ""
       raw_image:
-        description: 'Path to raw image (relative to workspace)'
+        description: "Existing raw disk image in the workspace (used only when ipsw_url is empty)"
         required: false
+        default: ""
+      list_members:
+        description: "Only list IPSW members, do not write a sparse image"
+        type: boolean
+        required: false
+        default: false
+      output:
+        description: "Output sparse image name"
+        required: false
+        default: "unixnu.sparse"
+
+permissions:
+  contents: read
 
 jobs:
   convert:
     runs-on: ubuntu-latest
+    timeout-minutes: 180
+    env:
+      UNIXNU_DIR: ${{ github.workspace }}/UniXNU
     steps:
-      - name: Checkout
+      - name: Checkout device repository
         uses: actions/checkout@v4
 
-      - name: Download IPSW
-        if: github.event.inputs.ipsw_url
+      - name: Checkout UniXNU (for udif.py)
+        uses: actions/checkout@v4
+        with:
+          repository: UniXNU/UniXNU
+          ref: main
+          path: UniXNU
+          persist-credentials: false
+
+      - name: Install build tools
         run: |
-          wget -q "${{ github.event.inputs.ipsw_url }}" -O restore.ipsw
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential git python3 ca-certificates wget unzip xz-utils
+          # Apple's reference LZFSE decoder is used by UniXNU's udif.py.
+          git clone --depth 1 https://github.com/lzfse/lzfse.git "$RUNNER_TEMP/lzfse"
+          make -C "$RUNNER_TEMP/lzfse" -j"$(nproc)"
+          echo "$RUNNER_TEMP/lzfse/build/bin" >> "$GITHUB_PATH"
+
+      - name: Download IPSW
+        if: inputs.ipsw_url != ''
+        run: |
+          wget -q --show-progress "${{ inputs.ipsw_url }}" -O restore.ipsw
           ls -lh restore.ipsw
 
-      - name: Convert to sparse
+      - name: List IPSW members
+        if: inputs.ipsw_url != '' && inputs.list_members
+        run: python3 scripts/ipsw_to_sparse.py --ipsw restore.ipsw --list
+
+      - name: Convert IPSW to sparse
+        if: ${{ inputs.ipsw_url != '' && !inputs.list_members }}
         run: |
-          if [ -f "restore.ipsw" ]; then
-            python3 scripts/ipsw_to_sparse.py --ipsw restore.ipsw --output userdata.sparse
-          elif [ -f "${{ github.event.inputs.raw_image }}" ]; then
-            python3 scripts/ipsw_to_sparse.py --raw-image "${{ github.event.inputs.raw_image }}" --output userdata.sparse
-          else
-            echo "No input provided"
-            exit 1
+          args=(--ipsw restore.ipsw --output "${{ inputs.output }}")
+          if [ -n "${{ inputs.member }}" ]; then
+            args+=(--member "${{ inputs.member }}")
           fi
+          python3 scripts/ipsw_to_sparse.py "${args[@]}"
+          ls -lh "${{ inputs.output }}"
+
+      - name: Convert raw image to sparse
+        if: ${{ inputs.ipsw_url == '' && inputs.raw_image != '' && !inputs.list_members }}
+        run: |
+          python3 scripts/ipsw_to_sparse.py \
+            --raw-image "${{ inputs.raw_image }}" \
+            --output "${{ inputs.output }}"
+          ls -lh "${{ inputs.output }}"
+
+      - name: Reject missing input
+        if: inputs.ipsw_url == '' && inputs.raw_image == ''
+        run: |
+          echo "::error::provide either ipsw_url or raw_image"
+          exit 1
 
       - name: Upload sparse image
+        if: ${{ !inputs.list_members }}
         uses: actions/upload-artifact@v4
         with:
-          name: userdata-sparse
-          path: userdata.sparse
+          name: unixnu-sparse
+          path: ${{ inputs.output }}
+          if-no-files-found: error
           retention-days: 7

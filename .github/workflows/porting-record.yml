@@ -5,18 +5,30 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
 
 jobs:
   check:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
+      - name: Checkout device repository
         uses: actions/checkout@v4
-
+        with:
+          path: device
+          fetch-depth: 0
       - name: Checkout UniXNU
-        run: git clone --depth 1 https://github.com/UniXNU/UniXNU.git UniXNU
-
-      - name: Validate porting.toml
-        run: |
-          cd UniXNU
-          python3 scripts/porting-record.py check --device ../UniXNU-raphael-ipados26
+        uses: actions/checkout@v4
+        with:
+          repository: UniXNU/UniXNU
+          ref: main
+          path: UniXNU
+          persist-credentials: false
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Validate all 13 structured areas
+        run: python3 UniXNU/scripts/porting-record.py check --device device

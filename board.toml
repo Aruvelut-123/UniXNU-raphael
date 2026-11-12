@@ -30,6 +30,24 @@ unixnu = "../sources/UniXNU-packaging"
 unixnu_repository = "UniXNU/UniXNU"
 unixnu_revision = "main"
 
+# Partition geometry of the root image's home: the dedicated `unixnu`
+# partition (sda34 on this handset), NOT the Android `userdata` one.
+#
+# Measured on raphael (SM8150, 512 GB variant, repartitioned GPT):
+#   /proc/partitions  sda34  134217728 KiB = 128.00 GiB
+#   /dev/block/by-name/unixnu -> /dev/block/sda34
+# lba_bytes = 512 because the values below are raw GPT sectors; XNU's UFS
+# driver seeks by absolute 512-byte LBA, so this keeps one unit everywhere.
+#
+# flags: derived by summing /proc/partitions from LBA 34 (no per-partition
+# gaps observed; the tail of the model lands 5 sectors short of the backup
+# GPT). Verify with:
+#   adb shell su -c "cat /sys/block/sda/sda34/start /sys/block/sda/sda34/size"
+[userdata]
+first_lba = 718487514
+last_lba = 986922969
+lba_bytes = 512
+
 [package.defconfig]
 "ipados-17.7.11-21H461" = "raphael_defconfig"
 # ipados-26.5.2-23F84 is NOT mapped on SM8150 (no FEAT_PAuth support).

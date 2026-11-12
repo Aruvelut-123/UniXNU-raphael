@@ -50,35 +50,75 @@ Detection order: `/dev/disk/by-partlabel/{unixnu,userdata}` then
 `/dev/block/by-name/{unixnu,userdata}`. Details and the limitation of doing this
 at boot time are in [docs/root-partition.md](docs/root-partition.md).
 
+### raphael's measured geometry
+
+Read off the handset (`cat /proc/partitions` + `/dev/block/by-name`), 512 GB
+variant with a repartitioned GPT:
+
+| Partition | Device | Start LBA | End LBA | Size |
+| --- | --- | --- | --- | --- |
+| `userdata` | `sda31` | 4063218 | 231565297 | 108.48 GiB |
+| `esp` | `sda32` | 231565298 | 232540145 | 476 MiB |
+| `win` | `sda33` | 232540146 | 718487513 | 231.72 GiB |
+| **`unixnu`** | `sda34` | **718487514** | **986922969** | **128.00 GiB** |
+
+`board.toml [userdata]` uses the **`unixnu`** entry: 128 GiB of headroom for a
+~7.9 GiB root image. `lba_bytes = 512` (raw GPT sectors, which is also what
+XNU's UFS driver seeks by).
+
+Root image size, measured from the 21H461 IPSW's ZIP64 directory and UDIF
+trailers without downloading the 6.4 GiB archive:
+
+| Window | Raw disk |
+| --- | --- |
+| `OS` (`044-76040-038.dmg`) | 4.80 GiB |
+| `SystemOS` (`044-76034-038.dmg`) | 3.08 GiB |
+| `userdata-root.img` | **≈ 7.9 GiB** (1 MiB manifest + 1 MiB-aligned windows) |
+
+So `unixnu` needs ≥ 8 GiB; the 128 GiB it already has is plenty.
+
 ## Build
 
-Host: Ubuntu 22.04+ (glibc). macOS works for the kernel step but the scripts
-here assume Linux.
+**Build in GitHub Actions: `.github/workflows/build.yml`.** It runs on
+`macos-26`, because upstream UniXNU's kernel step only supports the Xcode
+toolchain — `scripts/linux/setup-toolchain.py` builds a patched LLVM *from
+source*, which does not fit in a hosted Linux runner's time budget.
+
+Manual, on your own machine:
 
 ```sh
-# One-time: build the clang/ld64/lzfse toolchain into /opt/unixnu-linux
+# macOS with Xcode (the supported path for the kernel step)
 git clone --recurse-submodules https://github.com/UniXNU/UniXNU.git
 cd UniXNU
-sudo scripts/linux/setup-toolchain.py
-
-# Select the device and fetch sources
 ./unixnu defconfig raphael_defconfig -D ../UniXNU-raphael-ipados26
-./unixnu fetch
-./unixnu status --json
-
-# Build
-./unixnu kernel  -D ../UniXNU-raphael-ipados26
-./unixnu package -D ../UniXNU-raphael-ipados26
+./unixnu fetch -D ../UniXNU-raphael-ipados26
+./unixnu status --json -D ../UniXNU-raphael-ipados26   # 62 ordered patches
+./unixnu build kernel  -D ../UniXNU-raphael-ipados26
+./unixnu build package -D ../UniXNU-raphael-ipados26   # -> UniXNU.efi
 ./unixnu build firmware -D ../UniXNU-raphael-ipados26 --uefi ../uefi-raphael
-./unixnu bootimg -D ../UniXNU-raphael-ipados26
+./unixnu bootimg -D ../UniXNU-raphael-ipados26 --uefi ../uefi-raphael
 ```
+
+On Linux, run `sudo scripts/linux/setup-toolchain.py` once first (it compiles
+clang with the `__builtin_xnu_type_*` patch, cctools-port ld64, mig, iig and
+`lzfse` into `/opt/unixnu-linux`) — expect it to take hours.
 
 `scripts/build.sh` runs the same sequence and honours `UNIXNU_DIR` / `UEFI_DIR`.
 
-Firmware needs a `uefi-raphael` Mu-Silicium checkout with UniXNU, UniXNUDxe,
-DarwinBoot, UniXNURamDiskDxe, DiskIoDxe and FatPkg in its DSC/FDF — see
-[UEfI firmware integration](https://unixnu.com/porting/uefi-firmware). Without
-it the kernel, EFI package and boot image still build.
+Firmware and `boot.img` need a `uefi-raphael` Mu-Silicium checkout with UniXNU,
+UniXNUDxe, DarwinBoot, UniXNURamDiskDxe, DiskIoDxe and FatPkg in its DSC/FDF —
+see [UEFI firmware integration](https://unixnu.com/porting/uefi-firmware).
+Without it the kernel and the `UniXNU.efi` package still build; `boot.img`
+cannot, since it embeds the firmware volume. Dispatch the workflow with
+`uefi_repository=<owner/name>` once such a port exists.
+
+Verify the `unixnu` capacity before any flash, without downloading the IPSW:
+
+```sh
+./unixnu build userdata --dry-run -D ../UniXNU-raphael-ipados26
+```
+
+That prints the two windows and their sizes; nothing is extracted.
 
 ## IPSW → flashable sparse image
 
@@ -88,10 +128,18 @@ fastboot flash unixnu unixnu.sparse
 ```
 
 The converter emits libsparse FILL/RAW chunks and self-verifies by expanding the
-output and comparing sizes. `--ipsw` extracts a disk image from an IPSW archive,
-but AEA-encrypted images (iPadOS 27) and UDIF-compressed `.dmg` payloads still
-need macOS `aea` / `ipsw` or `hdiutil` — the script reports that and stops
-rather than producing a bad image.
+output and comparing sizes. `--ipsw` picks the largest `.dmg` member (or the one
+named by `--member`) and decodes it with UniXNU's own `scripts/unixnu/udif.py`,
+which handles raw / zlib / bzip2 / LZFSE; ZLIB-compressed members of the 21H461
+IPSW therefore convert on Linux, needing only Apple's reference `lzfse` binary
+(`.github/workflows/ipsw-convert.yml` builds it). AEA-encrypted images (iPadOS
+27 / iOS 26 restore dmgs) are not UDIF and are rejected rather than half-read.
+
+`--list` prints the IPSW members without touching a byte of them:
+
+```sh
+python3 scripts/ipsw_to_sparse.py --ipsw restore.ipsw --list
+```
 
 ## Porting status
 

@@ -49,8 +49,18 @@ sgdisk -i <n> /dev/block/sda
 # Copy first_lba / last_lba / lba_bytes into board.toml
 ```
 
-`board.toml` currently describes the `userdata` entry only. Add a commented
-`[userdata]` block for the `unixnu` partition once its geometry is known.
+`board.toml` describes the **`unixnu`** entry (sda34, 128.00 GiB). Measured on
+the handset; see the table in the README. Do not use `sgdisk -p` on MIUI: the
+`sgdisk` shipped there is toybox's and rejects `-p`.
+
+If you ever re-read the geometry, the sysfs files need root:
+
+```sh
+adb shell su -c "cat /sys/block/sda/sda34/start /sys/block/sda/sda34/size"
+```
+
+`start` and `size` are in **512-byte sectors**, so
+`last_lba = start + size - 1`.
 
 ## Verification
 
