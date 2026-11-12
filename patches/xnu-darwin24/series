@@ -15,4 +15,5 @@ osfmk__vm__vm_protos.h.patch
 osfmk__vm__vm_user.c.patch
 pexpert__pexpert__arm64__raphael.h.patch
 # Revive the BCM2837-style generic ARMv8 machine config on Darwin 24.
+config__MASTER.arm64.bcm2837.patch
 machine-config-bcm2837.patch
