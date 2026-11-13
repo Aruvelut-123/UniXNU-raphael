@@ -29,6 +29,9 @@ bsd__net__necp_client-entitlements.patch
 # symbols they declare (uat_bootstrap, ptep_get_iommu, pmap_ppl_lockdown_pages,
 # pmap_ppl_unlockdown_pages); degrade each call site, as upstream does.
 osfmk__arm__pmap__pmap.c__sart-h.patch
+# Apple-only per-SoC tunables live in a closed arm64/tunables/tunables.s; gate on
+# APPLE_ARM64_ARCH_FAMILY (undefined on this non-Apple port) so the include drops.
+osfmk__arm64__start.s__tunables.patch
 # Hosted SDK keeps the kernel private headers under usr/local/include; add that
 # root to INCFLAGS_SDK so os/firehose_* and firehose/* resolve (kernel-sdk-root).
 makedefs__MakeInc.def__kernel-sdkroot.patch
