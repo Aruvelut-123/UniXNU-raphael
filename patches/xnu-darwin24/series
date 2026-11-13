@@ -8,7 +8,6 @@ bsd__miscfs__bindfs__bindfs.h.patch
 bsd__sys__ubc_internal.h.patch
 osfmk__arm64__arm_vm_init.c.patch
 osfmk__arm64__caches_asm.s.patch
-osfmk__arm__pmap__pmap.h.patch
 osfmk__vm__vm_fault.c.patch
 osfmk__vm__vm_protos.h.patch
 osfmk__vm__vm_user.c.patch
@@ -22,3 +21,6 @@ machine-config-bcm2837.patch
 # Apple-closed amcc_rorgn_*.c are absent from the open-source xnu drop; provide a
 # stub so the kernel links (rorgn lockdown is a no-op on this port).
 amcc-rorgn-stub.patch
+# Upstream fix: necp_client.c references CodeSignature/Entitlements.h which is not
+# present in the open-source xnu drop; point it at CoreEntitlements instead.
+bsd__net__necp_client-entitlements.patch
