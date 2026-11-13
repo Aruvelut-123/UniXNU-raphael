@@ -1,5 +1,5 @@
 # Darwin 24 (xnu-11417.140.69) port of the 15-patch 4K/native series.
-# Paths are resolved relative to this series file's directory.
+# Paths are resolved relative to this series file directory.
 bsd__kern__kern_exec.c.patch
 bsd__kern__ubc_subr.c.patch
 bsd__miscfs__bindfs__bind_vfsops.c.patch
@@ -12,6 +12,7 @@ osfmk__vm__vm_fault.c.patch
 osfmk__vm__vm_protos.h.patch
 osfmk__vm__vm_user.c.patch
 pexpert__pexpert__arm64__raphael.h.patch
+pexpert__pexpert__arm64__apple_arm64_cpu.h.patch
 # Hosted macOS SDK ships only the compiled .dat, not the availability.pl helper;
 # make_symbol_aliasing.sh must use the fakeroot copy exported as XNU_AVAILABILITY_PL.
 bsd__sys__make_symbol_aliasing-availability-pl.patch
