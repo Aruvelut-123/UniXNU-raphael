@@ -109,7 +109,19 @@ jobs:
         if: github.event_name != 'workflow_dispatch' || inputs.build_kernel
         run: |
           cd "$UNIXNU_DIR"
+          set +e
           ./unixnu build kernel -D "$DEVICE_DIR"
+          rc=$?
+          echo "=== kernel build rc=$rc ==="
+          if [ $rc -ne 0 ]; then
+            echo '::group::kernel-bootstrap.log (full)'
+            find "$UNIXNU_DIR/out" -name 'kernel-bootstrap.log' -print -exec cat {} \;
+            echo '::endgroup::'
+            echo '::group::any config/sysconf leftovers'
+            find "$UNIXNU_DIR/out" -name 'config.DEVELOPMENT_ARM64*' -o -name '*.sysconf*' 2>/dev/null | head
+            echo '::endgroup::'
+          fi
+          exit $rc
 
       - name: Build UniXNU EFI application
         run: |
