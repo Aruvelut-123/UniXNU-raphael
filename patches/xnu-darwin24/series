@@ -25,3 +25,9 @@ amcc-rorgn-stub.patch
 # Upstream fix: necp_client.c references CodeSignature/Entitlements.h which is not
 # present in the open-source xnu drop; point it at CoreEntitlements instead.
 bsd__net__necp_client-entitlements.patch
+# Public source omits the PPL private headers (arm64/ppl/sart.h, uat.h);
+# fall back to a no-op SART bootstrap, as upstream public-pmap-sart.patch does.
+osfmk__arm__pmap__pmap.c__sart-h.patch
+# Hosted SDK keeps the kernel private headers under usr/local/include; add that
+# root to INCFLAGS_SDK so os/firehose_* and firehose/* resolve (kernel-sdk-root).
+makedefs__MakeInc.def__kernel-sdkroot.patch

@@ -1,0 +1,14 @@
+diff --git a/makedefs/MakeInc.def b/makedefs/MakeInc.def
+index 8830671..f135bef 100644
+--- a/makedefs/MakeInc.def
++++ b/makedefs/MakeInc.def
+@@ -1107,7 +1107,8 @@ INCFLAGS_IMPORT	= $(patsubst %, -I$(OBJROOT)/EXPORT_HDRS/%, $(COMPONENT_IMPORT_L
+ INCFLAGS_EXTERN	= -I$(SRCROOT)/EXTERNAL_HEADERS
+ INCFLAGS_GEN	= -I$(SRCROOT)/$(COMPONENT) -I$(OBJROOT)/EXPORT_HDRS/$(COMPONENT)
+ INCFLAGS_LOCAL	= -I.
+-INCFLAGS_SDK	= -I$(SDKROOT)/usr/local/include/kernel -I$(SDKROOT)/$(KPINCDIR)/AppleFeatures
++export KERNEL_SDKROOT ?= $(SDKROOT)
++INCFLAGS_SDK	= -I$(KERNEL_SDKROOT)/usr/local/include/kernel -I$(KERNEL_SDKROOT)/usr/local/include -I$(KERNEL_SDKROOT)/$(KPINCDIR)/AppleFeatures
+ INCFLAGS_PLATFORM = -I$(SDKROOT)/$(KPINCDIR)/platform
+ ifneq ($(KDKROOT),)
+ INCFLAGS_SDK   += -I$(KDKROOT)/$(KPINCDIR)
