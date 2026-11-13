@@ -1,13 +1,39 @@
 diff --git a/makedefs/MakeInc.def b/makedefs/MakeInc.def
-index 8830671..f135bef 100644
+index 8830671..1f54561 100644
 --- a/makedefs/MakeInc.def
 +++ b/makedefs/MakeInc.def
-@@ -1107,7 +1107,8 @@ INCFLAGS_IMPORT	= $(patsubst %, -I$(OBJROOT)/EXPORT_HDRS/%, $(COMPONENT_IMPORT_L
+@@ -29,7 +29,7 @@ SUPPORTED_ARM64_MACHINE_CONFIGS = NONE
+ else ifneq ($(findstring _host,$(RC_ProjectName)),)
+ SUPPORTED_ARM64_MACHINE_CONFIGS = NONE
+ else
+-SUPPORTED_ARM64_MACHINE_CONFIGS = T6000 T6020 T6030 T6031 T6041 T8101 T8103 T8112 T8122 T8132 VMAPPLE
++SUPPORTED_ARM64_MACHINE_CONFIGS = BCM2837 T6000 T6020 T6030 T6031 T6041 T8101 T8103 T8112 T8122 T8132 VMAPPLE
+ 
+ SPTM_ENABLED_SOCS_MacOSX = t6041 t8132
+ 
+@@ -70,6 +70,7 @@ COMPONENT_LIST	= osfmk bsd libkern iokit pexpert libsa security san
+ COMPONENT	= $(if $(word 2,$(subst /, ,$(RELATIVE_SOURCE_PATH))),$(word 2,$(subst /, ,$(RELATIVE_SOURCE_PATH))),$(firstword $(subst /, ,$(RELATIVE_SOURCE_PATH))))
+ COMPONENT_IMPORT_LIST = $(filter-out $(COMPONENT),$(COMPONENT_LIST))
+ 
++MACHINE_FLAGS_ARM64_BCM2837 = -DARM64_BOARD_CONFIG_BCM2837
+ MACHINE_FLAGS_ARM64_T8101 = -DARM64_BOARD_CONFIG_T8101			-mcpu=apple-a14
+ MACHINE_FLAGS_ARM64_T8103 = -DARM64_BOARD_CONFIG_T8103                  -mcpu=apple-a14
+ MACHINE_FLAGS_ARM64_T6000 = -DARM64_BOARD_CONFIG_T6000			-mcpu=apple-a14
+@@ -813,7 +814,8 @@ LDFLAGS_KERNEL_GEN = \
+ 	-Wl,-headerpad,152
+ 
+ # LDFLAGS_KERNEL_SDK	= -L$(SDKROOT)/usr/local/lib/kernel -lfirehose_kernel
+-LDFLAGS_KERNEL_SDK	= -L$(SDKROOT)/usr/local/lib/kernel -L$(SDKROOT)/usr/local/lib/kernel/platform
++export KERNEL_SDKROOT ?= $(SDKROOT)
++LDFLAGS_KERNEL_SDK	= -L$(KERNEL_SDKROOT)/usr/local/lib/kernel -L$(KERNEL_SDKROOT)/usr/local/lib/kernel/platform
+ ifneq ($(KDKROOT),)
+ LDFLAGS_KERNEL_SDK     += -L$(KDKROOT)/usr/local/lib/kernel/platform
+ endif
+@@ -1107,7 +1109,7 @@ INCFLAGS_IMPORT	= $(patsubst %, -I$(OBJROOT)/EXPORT_HDRS/%, $(COMPONENT_IMPORT_L
  INCFLAGS_EXTERN	= -I$(SRCROOT)/EXTERNAL_HEADERS
  INCFLAGS_GEN	= -I$(SRCROOT)/$(COMPONENT) -I$(OBJROOT)/EXPORT_HDRS/$(COMPONENT)
  INCFLAGS_LOCAL	= -I.
 -INCFLAGS_SDK	= -I$(SDKROOT)/usr/local/include/kernel -I$(SDKROOT)/$(KPINCDIR)/AppleFeatures
-+export KERNEL_SDKROOT ?= $(SDKROOT)
 +INCFLAGS_SDK	= -I$(KERNEL_SDKROOT)/usr/local/include/kernel -I$(KERNEL_SDKROOT)/usr/local/include -I$(KERNEL_SDKROOT)/$(KPINCDIR)/AppleFeatures
  INCFLAGS_PLATFORM = -I$(SDKROOT)/$(KPINCDIR)/platform
  ifneq ($(KDKROOT),)
