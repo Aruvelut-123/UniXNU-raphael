@@ -1,5 +1,5 @@
 diff --git a/bsd/kern/kern_exec.c b/bsd/kern/kern_exec.c
-index 240bbf6..be3e43a 100644
+index 240bbf6..956dd21 100644
 --- a/bsd/kern/kern_exec.c
 +++ b/bsd/kern/kern_exec.c
 @@ -186,7 +186,7 @@
@@ -1124,7 +1124,7 @@ index 240bbf6..be3e43a 100644
  /*
   * execargs_free
   *
-+	/* native_gpu_addon_prepare belongs inside native_owner_data_prepare */
++	* if (!error) native_gpu_addon_prepare(p, scratch);
   * Description:	Free the block of memory used by the execve arguments and the
   *		first page of the executable by a previous call to the function
   *		execargs_alloc().
