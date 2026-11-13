@@ -107,6 +107,8 @@ jobs:
 
       - name: Build XNU kernel (arm64, board os_profile)
         if: github.event_name != 'workflow_dispatch' || inputs.build_kernel
+        env:
+          VERBOSE: "YES"
         run: |
           cd "$UNIXNU_DIR"
           set +e
