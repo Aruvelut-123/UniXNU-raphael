@@ -119,13 +119,14 @@ jobs:
             # The [kernel.prelink] kernelcache path is resolved relative to the
             # working directory of the prelink step, which is the fetched source
             # tree (out/<device>/<profile>/<device>/tree). The staging script
-            # writes the file under the UniXNU checkout root, so if the kernel
-            # itself linked fine but the prelink could not find the kernelcache,
-            # mirror it into every fetched tree and retry just the prelink.
-            if grep -q 'kernelcache not found' <(find "$UNIXNU_DIR/out" -name 'kernel-bootstrap.log' -print -exec cat {} \; 2>/dev/null); then
-              echo '::group::mirror staged kernelcache into prelink tree'
-              src="$UNIXNU_DIR/out/raphael/arm64-kernelcache.decompressed"
-              found=0
+            # writes the file under the UniXNU checkout root, so the prelink
+            # cannot see it. Mirror it into every fetched tree and retry: the
+            # kernel objects are already built, so the retry is incremental and
+            # only the prelink runs again.
+            echo '::group::mirror staged kernelcache into prelink tree'
+            src="$UNIXNU_DIR/out/raphael/arm64-kernelcache.decompressed"
+            found=0
+            if [ -f "$src" ]; then
               while IFS= read -r tree; do
                 dst_dir="$tree/out/raphael"
                 mkdir -p "$dst_dir"
@@ -134,13 +135,17 @@ jobs:
                 echo "linked $dst_dir/arm64-kernelcache.decompressed"
                 found=$((found + 1))
               done < <(find "$UNIXNU_DIR/out" -type d -name tree -print)
-              echo "::endgroup::"
-              if [ "$found" -gt 0 ]; then
-                ./unixnu build kernel -D "$DEVICE_DIR"
-                rc=$?
-                echo "=== kernel build retry rc=$rc ==="
-              fi
             else
+              echo "staged kernelcache not present: $src"
+            fi
+            echo "mirrored into $found tree(s)"
+            echo '::endgroup::'
+            if [ "$found" -gt 0 ]; then
+              ./unixnu build kernel -D "$DEVICE_DIR"
+              rc=$?
+              echo "=== kernel build retry rc=$rc ==="
+            fi
+            if [ $rc -ne 0 ]; then
               echo '::group::kernel-bootstrap.log (full)'
               find "$UNIXNU_DIR/out" -name 'kernel-bootstrap.log' -print -exec cat {} \;
               echo '::endgroup::'
