@@ -1,0 +1,67 @@
+diff --git a/osfmk/arm64/amcc_rorgn_common.c b/osfmk/arm64/amcc_rorgn_common.c
+new file mode 100644
+index 0000000..dc4ea4e
+--- /dev/null
++++ b/osfmk/arm64/amcc_rorgn_common.c
+@@ -0,0 +1,36 @@
++/* Minimal stub for Apple-closed amcc_rorgn_*.c (absent from the open-source
++ * xnu drop). Supplies the symbols referenced by arm_init/pmap/machine_routines/
++ * zalloc so a port without active PPL/SPTM read-only-region lockdown links and
++ * boots.
++ *
++ * SECURITY NOTE: rorgn_lockdown / rorgn_validate_core / rorgn_stash_range are
++ * intentionally no-ops; read-only region enforcement is NOT performed. This is
++ * acceptable for bring-up on platforms where PPL/SPTM lockdown is not active,
++ * but must be revisited before any production build.
++ *
++ * The variable definitions below mirror the conditional declarations in
++ * <arm64/amcc_rorgn.h> so they only exist when the header treats them as
++ * variables (not macros).
++ */
++#include <arm64/amcc_rorgn.h>
++#include <mach/vm_types.h>
++
++#if defined(KERNEL_INTEGRITY_KTRR) || defined(KERNEL_INTEGRITY_CTRR)
++vm_offset_t ctrr_begin = 0, ctrr_end = 0;
++
++#if CONFIG_CSR_FROM_DT
++bool csr_unsafe_kernel_text = false;
++#endif
++
++#if DEVELOPMENT || DEBUG || CONFIG_DTRACE || CONFIG_CSR_FROM_DT
++bool rorgn_disable = true;
++#endif
++#endif /* KERNEL_INTEGRITY_KTRR || KERNEL_INTEGRITY_CTRR */
++
++void rorgn_stash_range(void) {}
++void rorgn_lockdown(void) {}
++void rorgn_validate_core(void) {}
++bool rorgn_contains(vm_offset_t addr, vm_size_t size, bool defval)
++{
++	return defval;
++}
+\ No newline at end of file
+diff --git a/osfmk/conf/files.arm64 b/osfmk/conf/files.arm64
+index 4806f20..c9285ec 100644
+--- a/osfmk/conf/files.arm64
++++ b/osfmk/conf/files.arm64
+@@ -20,7 +20,6 @@ osfmk/arm64/sptm/pmap/pmap_iommu.c	optional nos_arm_asm config_sptm
+ osfmk/arm64/sptm/pmap/pmap_misc.c	optional nos_arm_asm config_sptm
+ osfmk/arm64/sptm/pmap/pmap_ppl_interface.c	optional nos_arm_asm config_sptm
+ osfmk/arm64/sptm/start_sptm.s		optional nos_arm_asm config_sptm
+-osfmk/arm64/amcc_rorgn_sptm.c		optional nos_arm_asm config_sptm
+ osfmk/arm64/sptm/arm_init_sptm.c	optional config_sptm
+ 
+ osfmk/arm64/bsd_arm64.c		optional mach_bsd
+@@ -33,10 +32,7 @@ osfmk/arm64/WKdmCompress_4k.s	standard
+ osfmk/arm64/WKdmData.s		standard
+ osfmk/arm64/lz4_decode_arm64.s  standard
+ osfmk/arm64/lz4_encode_arm64.s  standard
+-osfmk/arm64/amcc_rorgn_ppl.c optional nos_arm_asm config_pmap_ppl
+-osfmk/arm64/amcc_rorgn_ppl_amcc.c optional nos_arm_asm config_pmap_ppl
+-osfmk/arm64/amcc_rorgn_ppl_ctrr3.c optional nos_arm_asm config_pmap_ppl
+-osfmk/arm64/amcc_rorgn_common.c optional nos_arm_asm
++osfmk/arm64/amcc_rorgn_common.c		standard
+ osfmk/arm64/bcopy.s standard
+ osfmk/arm64/bzero.s standard
+ osfmk/arm/caches.c		standard

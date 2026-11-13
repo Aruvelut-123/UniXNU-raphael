@@ -19,3 +19,6 @@ bsd__sys__make_symbol_aliasing-availability-pl.patch
 # Revive the BCM2837-style generic ARMv8 machine config on Darwin 24.
 config__MASTER.arm64.bcm2837.patch
 machine-config-bcm2837.patch
+# Apple-closed amcc_rorgn_*.c are absent from the open-source xnu drop; provide a
+# stub so the kernel links (rorgn lockdown is a no-op on this port).
+amcc-rorgn-stub.patch
