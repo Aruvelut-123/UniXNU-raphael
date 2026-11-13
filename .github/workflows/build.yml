@@ -112,47 +112,22 @@ jobs:
         run: |
           cd "$UNIXNU_DIR"
           set +e
-          ./unixnu build kernel -D "$DEVICE_DIR"
+          # The kernelcache prelink needs the decrypted root image (AEA), which a
+          # Linux runner cannot produce; that is the separate root-image.yml
+          # macOS workflow. On this Linux build we stage the native kernel only
+          # (--skip-prelink), which is exactly the upstream-supported dry-run
+          # path for hosts without AEA. The full prelinked kernel is produced on
+          # the macOS runner where the root can be unpacked.
+          ./unixnu build kernel --skip-prelink -D "$DEVICE_DIR"
           rc=$?
           echo "=== kernel build rc=$rc ==="
           if [ $rc -ne 0 ]; then
-            # The [kernel.prelink] kernelcache path is resolved relative to the
-            # working directory of the prelink step, which is the fetched source
-            # tree (out/<device>/<profile>/<device>/tree). The staging script
-            # writes the file under the UniXNU checkout root, so the prelink
-            # cannot see it. Mirror it into every fetched tree and retry: the
-            # kernel objects are already built, so the retry is incremental and
-            # only the prelink runs again.
-            echo '::group::mirror staged kernelcache into prelink tree'
-            src="$UNIXNU_DIR/out/raphael/arm64-kernelcache.decompressed"
-            found=0
-            if [ -f "$src" ]; then
-              while IFS= read -r tree; do
-                dst_dir="$tree/out/raphael"
-                mkdir -p "$dst_dir"
-                ln -sf "$src" "$dst_dir/arm64-kernelcache.decompressed"
-                ln -sf "$src.json" "$dst_dir/arm64-kernelcache.decompressed.json"
-                echo "linked $dst_dir/arm64-kernelcache.decompressed"
-                found=$((found + 1))
-              done < <(find "$UNIXNU_DIR/out" -type d -name tree -print)
-            else
-              echo "staged kernelcache not present: $src"
-            fi
-            echo "mirrored into $found tree(s)"
+            echo '::group::kernel-bootstrap.log (full)'
+            find "$UNIXNU_DIR/out" -name 'kernel-bootstrap.log' -print -exec cat {} \;
             echo '::endgroup::'
-            if [ "$found" -gt 0 ]; then
-              ./unixnu build kernel -D "$DEVICE_DIR"
-              rc=$?
-              echo "=== kernel build retry rc=$rc ==="
-            fi
-            if [ $rc -ne 0 ]; then
-              echo '::group::kernel-bootstrap.log (full)'
-              find "$UNIXNU_DIR/out" -name 'kernel-bootstrap.log' -print -exec cat {} \;
-              echo '::endgroup::'
-              echo '::group::any config/sysconf leftovers'
-              find "$UNIXNU_DIR/out" -name 'config.DEVELOPMENT_ARM64*' -o -name '*.sysconf*' 2>/dev/null | head
-              echo '::endgroup::'
-            fi
+            echo '::group::any config/sysconf leftovers'
+            find "$UNIXNU_DIR/out" -name 'config.DEVELOPMENT_ARM64*' -o -name '*.sysconf*' 2>/dev/null | head
+            echo '::endgroup::'
           fi
           exit $rc
 
