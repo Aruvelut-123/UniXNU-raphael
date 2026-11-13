@@ -1,0 +1,21 @@
+diff --git a/osfmk/arm64/monotonic_arm64.c b/osfmk/arm64/monotonic_arm64.c
+index b3309aa..8c80fab 100644
+--- a/osfmk/arm64/monotonic_arm64.c
++++ b/osfmk/arm64/monotonic_arm64.c
+@@ -1461,6 +1461,7 @@ mt_cpu_pmi(cpu_data_t *cpu, uint64_t pmcr0)
+ 	/*
+ 	 * KPC handles the configurable counter PMIs.
+ 	 */
++#if CONFIG_CPU_COUNTERS
+ 	for (unsigned int i = MT_CORE_NFIXED; i < CORE_NCTRS; i++) {
+ 		if (pmsr & PMSR_OVF(i)) {
+ #if MACH_ASSERT
+@@ -1470,6 +1471,8 @@ mt_cpu_pmi(cpu_data_t *cpu, uint64_t pmcr0)
+ 			kpc_pmi_handler(i);
+ 		}
+ 	}
++#endif /* CONFIG_CPU_COUNTERS */
++
+ 
+ #if MACH_ASSERT
+ 	uint64_t pmsr_after_handling = __builtin_arm_rsr64("S3_1_C15_C13_0");

@@ -32,6 +32,12 @@ osfmk__arm__pmap__pmap.c__sart-h.patch
 # Apple-only per-SoC tunables live in a closed arm64/tunables/tunables.s; gate on
 # APPLE_ARM64_ARCH_FAMILY (undefined on this non-Apple port) so the include drops.
 osfmk__arm64__start.s__tunables.patch
+# Public source omits the non-monitor variant of pmap_pending_preemption, referenced
+# when SCHED_HYGIENE_DEBUG is enabled; provide it (forwards to _pmap_pending_preemption_real).
+osfmk__arm__pmap__pmap_misc.c__pending-preemption.patch
+# kpc_pmi_handler lives in kpc.c which is optional under config_cpu_counters; on this
+# port that option is off, so gate the monotonic_arm64.c callback the same way.
+osfmk__arm64__monotonic_arm64.c__kpc-pmi-gate.patch
 # Hosted SDK keeps the kernel private headers under usr/local/include; add that
 # root to INCFLAGS_SDK so os/firehose_* and firehose/* resolve (kernel-sdk-root).
 makedefs__MakeInc.def__kernel-sdkroot.patch
