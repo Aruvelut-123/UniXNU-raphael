@@ -100,6 +100,33 @@ jobs:
           ./unixnu defconfig raphael_defconfig -D "$DEVICE_DIR"
           ./unixnu fetch -D "$DEVICE_DIR"
 
+      - name: Mirror the staged kernelcache into the prelink working tree
+        run: |
+          # [kernel.prelink] kernelcache is a path relative to the working
+          # directory of the prelink step. The staging script resolves it
+          # against the UniXNU checkout, but the prelink runs from the
+          # fetched tree (out/<device>/<profile>/<device>/tree), so the same
+          # relative path has to exist there too.
+          set -eu
+          src="$UNIXNU_DIR/out/raphael/arm64-kernelcache.decompressed"
+          if [ ! -f "$src" ]; then
+            echo "staged kernelcache missing: $src" >&2
+            exit 1
+          fi
+          found=0
+          while IFS= read -r tree; do
+            dst_dir="$tree/out/raphael"
+            mkdir -p "$dst_dir"
+            ln -sf "$src" "$dst_dir/arm64-kernelcache.decompressed"
+            ln -sf "$src.json" "$dst_dir/arm64-kernelcache.decompressed.json"
+            echo "linked $dst_dir/arm64-kernelcache.decompressed"
+            found=$((found + 1))
+          done < <(find "$UNIXNU_DIR/out" -type d -name tree -print)
+          if [ "$found" -eq 0 ]; then
+            echo "no fetched tree directory found under $UNIXNU_DIR/out" >&2
+            exit 1
+          fi
+
       - name: Resolution report (ordered patches for the board's OS profile)
         run: |
           cd "$UNIXNU_DIR"
