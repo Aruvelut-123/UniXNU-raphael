@@ -77,42 +77,65 @@ jobs:
           python-version: "3.13"
 
       - name: Stage the UniXNU boot chain into the Aloha platform
-        if: inputs.build_unixnu
+        env:
+          # build_uefi.py has no way to forward -D to EDK II, so the switch
+          # travels through this variable and the staging script writes it into
+          # the DSC [Defines] block. Both device variants are patched, because
+          # secureboot=false drives PlatformBuildNoSb.py and SurfaceDuo1NoSb.dsc.
+          ALOHA_EXTRA_DEFINES: ${{ inputs.build_unixnu && 'BUILD_UNIXNU=1' || 'BUILD_UNIXNU=0' }}
         run: |
-          # The DSC/FDF of the Aloha platform know nothing about UniXNU. The
-          # include files listed here add the boot menu, the boot option
-          # registration, the initrd block device and the DarwinBoot loader to
-          # [LibraryClasses.common] / [Components.common] / [FV.FvMain] behind
-          # a BUILD_UNIXNU switch, so the stock build stays untouched when the
-          # switch is off.
-          python3 "$DEVICE_DIR/scripts/stage-aloha-unixnu.py"             --aloha "$ALOHA_DIR"             --unixnu "$UNIXNU_DIR"             --platform SurfaceDuo1
+          python3 "$DEVICE_DIR/scripts/stage-aloha-unixnu.py" \
+            --aloha "$ALOHA_DIR" \
+            --unixnu "$UNIXNU_DIR" \
+            --platform SurfaceDuo1 \
+            --device xiaomi-raphael
+      - name: Verify the staged switch
+        run: |
+          # Fail early if the switch did not land: a silent BUILD_UNIXNU=0 build
+          # would still produce a flashable image, just without the boot chain.
+          want=0
+          if [ "${{ inputs.build_unixnu }}" = "true" ]; then want=1; fi
+          for dsc in SurfaceDuo1.dsc SurfaceDuo1NoSb.dsc; do
+            path="$ALOHA_DIR/Platforms/SurfaceDuo1Pkg/$dsc"
+            if ! grep -Eq "BUILD_UNIXNU +=+ $want\$" "$path"; then
+              echo "::error::$dsc does not carry BUILD_UNIXNU = $want"
+              grep -n 'BUILD_UNIXNU' "$path" || true
+              exit 1
+            fi
+            echo "$dsc: BUILD_UNIXNU = $want"
+          done
+          echo "staged includes:"
+          ls -l "$ALOHA_DIR/Platforms/SurfaceDuo1Pkg/Include/UniXNU"*.inc
+
 
       - name: Install the EDK II toolchain
         run: |
-          sudo apt-get update
-          sudo apt-get install -y build-essential uuid-dev iasl nasm python3-distutils
-          # Aloha builds with EDK II's CLANGPDB tool chain, which needs llvm-lib
-          # and lld-link; the distro llvm package ships both.
-          sudo apt-get install -y llvm lld clang
+          # Use the project's own setup script so the package list cannot drift;
+          # python3-distutils is only needed on releases before 24.04 and has no
+          # installation candidate there.
+          sed -i 's/ python3-distutils//' "$ALOHA_DIR/build_setup.sh" || true
+          cd "$ALOHA_DIR"
+          sudo bash build_setup.sh
+          pip install --upgrade -r pip-requirements.txt
+          git config --global --add safe.directory '*'
 
       - name: Initialise the EDK II environment
         run: |
           cd "$ALOHA_DIR"
-          pip install --upgrade -r pip-requirements.txt
-          git config --global --add safe.directory '*'
           python3 build_uefi.py --init
 
       - name: Build raphael UEFI and boot image
         env:
-          # build_uefi.py only forwards -d/-p/-s/-t to EDK II, so the switch the
-          # staged DSC/FDF read has to travel through the environment and be
-          # appended by the platform build script.
-          ALOHA_EXTRA_DEFINES: ${{ inputs.build_unixnu && 'BUILD_UNIXNU=1' || '' }}
+          # The platform build scripts append these to PACKAGES_PATH, which is a
+          # hard-coded tuple inside them. Without it EDK II cannot resolve
+          # UniXNUPkg/... or DarwinBootPkg/... and the build stops at the DSC.
+          ALOHA_EXTRA_PACKAGES: ${{ github.workspace }}/UniXNU/package:${{ github.workspace }}/UniXNU/drivers/DarwinBoot
         run: |
           cd "$ALOHA_DIR"
           ARGS="-d xiaomi-raphael"
           if [ "${{ inputs.secureboot }}" = "true" ]; then ARGS="$ARGS -s 1"; fi
-          echo "build_uefi.py $ARGS (extra defines: ${ALOHA_EXTRA_DEFINES:-none})"
+          echo "build_uefi.py $ARGS"
+          echo "ALOHA_EXTRA_PACKAGES=$ALOHA_EXTRA_PACKAGES"
           python3 build_uefi.py $ARGS
 
       - name: Collect products
