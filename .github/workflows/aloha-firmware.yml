@@ -150,8 +150,12 @@ jobs:
 
       - name: Collect products
         run: |
+          # build_uefi.py only populates ci_artifacts when WM_CI_BUILD is set, and
+          # that path also builds both variants and moves the FD out of the tree.
+          # Collect straight from the build output instead.
           mkdir -p "$GITHUB_WORKSPACE/out"
-          find "$ALOHA_DIR/Build" -path '*ci_artifacts*' -type f -print -exec cp {} "$GITHUB_WORKSPACE/out/" \;
+          cp -v "$ALOHA_DIR"/Build/SurfaceDuo1Pkg/*.img "$GITHUB_WORKSPACE/out/"
+          cp -v "$ALOHA_DIR"/Build/SurfaceDuo1Pkg/RELEASE_CLANGPDB/FV/SM8150_EFI.fd "$GITHUB_WORKSPACE/out/"
           ls -l "$GITHUB_WORKSPACE/out"
 
       - name: Boot image availability
