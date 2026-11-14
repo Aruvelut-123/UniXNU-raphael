@@ -37,6 +37,7 @@ findings = [
   "both 22H390 dmgs are AEA encrypted, so building the root image needs macOS /usr/bin/aea",
   "status resolves arch=arm64, soc=sm8150, os=ipados-18.7.12-22H390 and the device board.toml",
   "board.toml [firmware] now records the Mu-Silicium raphael tree and [firmware.defines] BUILD_UNIXNU=1; status --json resolves it as part of the board",
+  "board.toml [bootimg.image] pins base 0x10000000, kernel_offset 0x8000, ramdisk_offset 0x1000000 and pagesize 2048, matching the headers of the platform stock Mu-raphael.img",
 ]
 completion = [
   "Every profile root, source pin, component closure and patch order resolves without error",
@@ -84,6 +85,7 @@ findings = [
   "A RELEASE build produces a 3145728-byte (0x300000) SILICIUM_UEFI.fd with FVMAIN at 99% (about 3 KB free), so any further module needs room reserved elsewhere or a larger FD",
   "Upstream UniXNU has no raphael platform; this board relies on the fork above and on board.toml pointing at it",
   "The fork's own CI builds the stock firmware (BUILD_UNIXNU=0) only; the UniXNU variant is built by this repository's firmware step",
+  "First hardware attempt: fastboot boot of the CI boot.img dropped straight back to a reboot. The image header said kernel_addr 0x8000 and pagesize 4096, i.e. bootimg fell back to its DEFAULTS because raphael.toml only sets header_version; the stock Mu-raphael.img uses 0x10008000 with 2048-byte pages, so [bootimg.image] now pins those values",
 ]
 completion = [
   "A firmware volume builds and UniXNU draws its boot menu on raphael",

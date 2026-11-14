@@ -54,6 +54,21 @@ first_lba = 718487514
 last_lba = 986922969
 lba_bytes = 512
 
+# ---------------------------------------------------------------- boot image
+# The Android boot image header that raphael's ABL expects. These are the
+# values the platform's own build_uefi.py already uses (see the stock
+# Mu-raphael.img headers): ABL loads the kernel at 0x10008000 and the ramdisk at
+# 0x11000000 with 2048-byte pages. Without this section bootimg falls back to its
+# DEFAULTS (base 0, page 4096), which puts the shim at 0x8000 and the device
+# drops straight back to fastboot.
+[bootimg.image]
+header_version = 1
+base = 0x10000000
+kernel_offset = 0x8000
+tags_offset = 0x100
+ramdisk_offset = 0x1000000
+second_offset = 0xf00000
+pagesize = 2048
 # ---------------------------------------------------------------- firmware
 # The UEFI firmware comes from this repository's Mu-Silicium fork, branch
 # raphael-bringup: a raphael-only tree that vendors the Project Aloha
