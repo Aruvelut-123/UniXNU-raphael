@@ -54,5 +54,55 @@ first_lba = 718487514
 last_lba = 986922969
 lba_bytes = 512
 
+# ---------------------------------------------------------------- firmware
+# The UEFI firmware comes from this repository's Mu-Silicium fork, branch
+# raphael-bringup: a raphael-only tree that vendors the Project Aloha
+# Binaries/raphael and Resources/DTBs/raphael.dtb, so no private checkout is
+# needed. Its raphael.dsc / raphael.fdf embed the XNU boot chain (UniXNU,
+# UniXNUDxe, UniXNURamDiskDxe, DarwinBoot), which the DSC pulls in from
+# Include/UniXNU.dsc.inc.
+#
+# Point --uefi (or UNIXNU_UEFI) at that checkout:
+#   git clone -b raphael-bringup https://github.com/Aruvelut-123/Mu-Silicium-raphael
+#   ./unixnu build firmware --uefi ../Mu-Silicium-raphael
+#
+# Submodules are limited to the shared trees the DSC chain includes; Binaries
+# is a plain directory in this fork and Mu_Basecore is provided as {edk2}.
+[firmware]
+config = "raphael"
+dsc = "Platforms/Xiaomi/raphaelPkg/raphael.dsc"
+fd = "Build/raphaelPkg/{target}_CLANGPDB/FV/SILICIUM_UEFI.fd"
+submodules = [
+  "Common/Mu",
+  "Common/Mu_OEM_Sample",
+  "Silicium-ACPI",
+  "Silicon/Silicium/OpensslPkg/Library/OpensslLib/openssl",
+]
+packages = [
+  "{uefi}",
+  "{uefi}/Platforms/Xiaomi",
+  "{tree}/package",
+  "{tree}/drivers/DarwinBoot",
+  "{edk2}",
+  "{uefi}/Common/Mu",
+  "{uefi}/Common/Mu_OEM_Sample",
+  "{uefi}/Silicon/Qualcomm",
+  "{uefi}/Silicon/Silicium",
+  "{uefi}/Silicium-ACPI",
+  "{uefi}/Silicium-ACPI/Platforms/Xiaomi",
+  "{uefi}/Silicium-ACPI/Silicon/Qualcomm",
+]
+# Switches the DSC chain reads with $(...). SOC_TYPE 0 = SM8150-AB (Redmi K20
+# Pro / Mi 9T Pro); the raphael package has no custom display driver and the
+# build is unsigned, matching what build_uefi.py produces for this device.
+[firmware.defines]
+SOC_TYPE = "0"
+USE_CUSTOM_DISPLAY_DRIVER = "0"
+ENABLE_SECUREBOOT = "0"
+DEVICE_MODEL = "0"
+# Embeds the XNU boot chain in the FD (raphael.dsc/FDF pull it in through
+# Include/UniXNU.dsc.inc). Requires the UniXNU package roots listed above.
+BUILD_UNIXNU = "1"
+
 [package.defconfig]
 "ipados-18.7.12-22H390" = "raphael_defconfig"
