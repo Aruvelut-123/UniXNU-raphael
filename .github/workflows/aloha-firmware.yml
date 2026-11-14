@@ -1,0 +1,146 @@
+name: Build raphael firmware and boot image (Project Aloha)
+
+# The Mu-Silicium fork ships a raphael platform that has never booted on
+# hardware, so this workflow builds the same firmware from Project Aloha
+# instead: mu_aloha_platforms lists xiaomi-raphael as a supported target, and
+# its SurfaceDuo1Pkg platform is what produced the known-good menu-diag2 image.
+#
+# Aloha already packs BootShim + the firmware volume into a complete Android
+# boot image (PythonLibs/PostBuild.py), so unlike the UniXNU firmware step this
+# one does not need Resources/Scripts/mkbootimg.py and does not go through
+# ./unixnu bootimg. The UniXNU boot chain is compiled into the volume by
+# patching the platform DSC/FDF, and the result is a ready-to-flash .img.
+on:
+  workflow_dispatch:
+    inputs:
+      aloha_repository:
+        description: "Project Aloha platforms checkout (owner/name)"
+        required: false
+        default: "Project-Aloha/mu_aloha_platforms"
+      aloha_ref:
+        description: "Ref of the Aloha checkout"
+        required: false
+        default: "main"
+      build_unixnu:
+        description: "Compile the UniXNU boot chain into the firmware volume"
+        type: boolean
+        required: false
+        default: true
+      secureboot:
+        description: "Build the Secure Boot variant instead of the NoSB one"
+        type: boolean
+        required: false
+        default: false
+permissions:
+  contents: read
+concurrency:
+  group: aloha-raphael-${{ github.ref }}
+  cancel-in-progress: false
+env:
+  DEVICE_DIR: ${{ github.workspace }}/device
+  ALOHA_DIR: ${{ github.workspace }}/aloha
+  UNIXNU_DIR: ${{ github.workspace }}/UniXNU
+  UNIXNU_DEVICE: ${{ github.workspace }}/device
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    steps:
+      - name: Checkout device repository
+        uses: actions/checkout@v4
+        with:
+          path: device
+
+      - name: Checkout Project Aloha platforms
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ inputs.aloha_repository }}
+          ref: ${{ inputs.aloha_ref }}
+          path: aloha
+          submodules: recursive
+          persist-credentials: false
+
+      - name: Checkout UniXNU
+        if: inputs.build_unixnu
+        uses: actions/checkout@v4
+        with:
+          repository: UniXNU/UniXNU
+          ref: main
+          path: UniXNU
+          submodules: recursive
+          persist-credentials: false
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Stage the UniXNU boot chain into the Aloha platform
+        if: inputs.build_unixnu
+        run: |
+          # The DSC/FDF of the Aloha platform know nothing about UniXNU. The
+          # include files listed here add the boot menu, the boot option
+          # registration, the initrd block device and the DarwinBoot loader to
+          # [LibraryClasses.common] / [Components.common] / [FV.FvMain] behind
+          # a BUILD_UNIXNU switch, so the stock build stays untouched when the
+          # switch is off.
+          python3 "$DEVICE_DIR/scripts/stage-aloha-unixnu.py"             --aloha "$ALOHA_DIR"             --unixnu "$UNIXNU_DIR"             --platform SurfaceDuo1
+
+      - name: Install the EDK II toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential uuid-dev iasl nasm python3-distutils
+          # Aloha builds with EDK II's CLANGPDB tool chain, which needs llvm-lib
+          # and lld-link; the distro llvm package ships both.
+          sudo apt-get install -y llvm lld clang
+
+      - name: Initialise the EDK II environment
+        run: |
+          cd "$ALOHA_DIR"
+          pip install --upgrade -r pip-requirements.txt
+          git config --global --add safe.directory '*'
+          python3 build_uefi.py --init
+
+      - name: Build raphael UEFI and boot image
+        env:
+          # build_uefi.py only forwards -d/-p/-s/-t to EDK II, so the switch the
+          # staged DSC/FDF read has to travel through the environment and be
+          # appended by the platform build script.
+          ALOHA_EXTRA_DEFINES: ${{ inputs.build_unixnu && 'BUILD_UNIXNU=1' || '' }}
+        run: |
+          cd "$ALOHA_DIR"
+          ARGS="-d xiaomi-raphael"
+          if [ "${{ inputs.secureboot }}" = "true" ]; then ARGS="$ARGS -s 1"; fi
+          echo "build_uefi.py $ARGS (extra defines: ${ALOHA_EXTRA_DEFINES:-none})"
+          python3 build_uefi.py $ARGS
+
+      - name: Collect products
+        run: |
+          mkdir -p "$GITHUB_WORKSPACE/out"
+          find "$ALOHA_DIR/Build" -path '*ci_artifacts*' -type f -print -exec cp {} "$GITHUB_WORKSPACE/out/" \;
+          ls -l "$GITHUB_WORKSPACE/out"
+
+      - name: Boot image availability
+        run: |
+          set -o pipefail
+          shopt -s nullglob
+          found=("$GITHUB_WORKSPACE"/out/*.img)
+          if [ ${#found[@]} -eq 0 ]; then
+            echo "::error::the build produced no boot image"
+            exit 1
+          fi
+          for img in "${found[@]}"; do
+            echo "$(basename "$img"): $(stat -c %s "$img") bytes"
+            sha256sum "$img"
+          done
+
+      - name: Upload boot image
+        uses: actions/upload-artifact@v4
+        with:
+          name: aloha-raphael-bootimg
+          path: |
+            out/*.img
+            out/*.fd
+          compression-level: 9
+          if-no-files-found: error
