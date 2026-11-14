@@ -247,26 +247,36 @@ def main():
     )
     args = parser.parse_args()
 
+    # The switch decides how much validation applies below, so parse it first.
+    defines = parse_extra_defines(args.defines)
+    build_unixnu = defines.get("BUILD_UNIXNU", "0")
+    print(f"BUILD_UNIXNU = {build_unixnu}")
+
     aloha = args.aloha.resolve()
     unixnu = args.unixnu.resolve()
     package = aloha / "Platforms" / f"{args.platform}Pkg"
     if not package.is_dir():
         sys.exit(f"platform package not found: {package}")
 
+    # The UniXNU packages only have to exist when the boot chain is compiled in.
+    # A baseline run (BUILD_UNIXNU=0) does not check UniXNU out at all, and the
+    # includes stay behind the switch, so a missing checkout is not an error.
     unixnu_packages = [unixnu / "package", unixnu / "drivers" / "DarwinBoot"]
-    for candidate in unixnu_packages:
-        if not candidate.is_dir():
-            sys.exit(f"expected UniXNU package directory missing: {candidate}")
-    if not (unixnu / "package" / "UniXNUPkg" / "UniXNUPkg.dec").is_file():
-        sys.exit(f"UniXNUPkg.dec missing under {unixnu / 'package'}")
+    if build_unixnu == "1":
+        if not (unixnu / "package" / "UniXNUPkg" / "UniXNUPkg.dec").is_file():
+            sys.exit(
+                "BUILD_UNIXNU=1 needs a full UniXNU checkout, but "
+                f"{unixnu / 'package' / 'UniXNUPkg' / 'UniXNUPkg.dec'} is missing"
+            )
+        for candidate in unixnu_packages:
+            if not candidate.is_dir():
+                sys.exit(f"expected UniXNU package directory missing: {candidate}")
+    else:
+        print(f"BUILD_UNIXNU=0: no UniXNU checkout required under {unixnu}")
 
     device = package / "Device" / args.device
     if not device.is_dir():
         sys.exit(f"device directory not found: {device}")
-
-    defines = parse_extra_defines(args.defines)
-    build_unixnu = defines.get("BUILD_UNIXNU", "0")
-    print(f"BUILD_UNIXNU = {build_unixnu}")
 
     includes = package / "Include"
     write_if_changed(
