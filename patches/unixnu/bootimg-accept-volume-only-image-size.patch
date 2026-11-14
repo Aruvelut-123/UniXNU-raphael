@@ -1,0 +1,26 @@
+diff --git a/scripts/unixnu/bootimg.py b/scripts/unixnu/bootimg.py
+index de568f8..fce36e8 100644
+--- a/scripts/unixnu/bootimg.py
++++ b/scripts/unixnu/bootimg.py
+@@ -35,8 +35,19 @@ def compile_shim(uefi, base, size, requires_header, scratch):
+     offset = next((int(line.split()[0], 16) for line in symbols.splitlines() if line.endswith(' _Payload')), None)
+     if offset != len(shim):
+         raise Error('a literal pool or padding separates the _Payload label from the appended firmware volume')
+-    if requires_header and (shim[56:60] != b'ARM\x64' or struct.unpack_from('<QQ', shim, 8) != (base, len(shim) + size)):
+-        raise Error('the ARM64 image header does not describe the shim plus the firmware volume')
++    if requires_header:
++        if shim[56:60] != b'ARM\x64':
++            raise Error('the ARM64 image header is missing the ARMd magic')
++        text_offset, image_size = struct.unpack_from('<QQ', shim, 8)
++        # Some ABLs (raphael) want the field to describe the volume alone, the way
++        # the platform's own build_uefi.py writes it; others want the shim included.
++        # Both are accepted, anything else means the shim was built for another size.
++        if text_offset != base or image_size not in (size, len(shim) + size):
++            raise Error(
++                'the ARM64 image header does not describe the firmware volume: '
++                f'text_offset {text_offset:#x} (want {base:#x}), '
++                f'image_size {image_size:#x} (want {size:#x} or {len(shim) + size:#x})'
++            )
+     return shim
+ 
+ 

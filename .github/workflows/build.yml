@@ -64,6 +64,13 @@ jobs:
           submodules: recursive
           persist-credentials: false
 
+      - name: Patch UniXNU for this board
+        run: |
+          # raphael's ABL wants the ARM64 Image Size field to describe the firmware
+          # volume alone, the way the platform's own build_uefi.py writes it. Upstream
+          # bootimg.py insists on shim+volume and rejects the image, so relax the check
+          # to accept either encoding.
+          git -C "$UNIXNU_DIR" apply --verbose "$DEVICE_DIR/patches/unixnu/bootimg-accept-volume-only-image-size.patch"
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
