@@ -203,26 +203,30 @@ def patch_fdf(fdf, platform):
 
 def patch_build_py(build_py):
     text = build_py.read_text()
-    if MARKER_BUILD in text:
-        print(f"already patched {build_py} (PackagesPath)")
-        return
     needle = (
         "        for a in CommonPlatform.PackagesPath:\n"
         "            result.append(a)\n"
         "        return result"
     )
-    if needle not in text:
-        sys.exit(f"PackagesPath loop not found in {build_py}")
-    replacement = (
+    target = (
         "        for a in CommonPlatform.PackagesPath:\n"
         "            result.append(a)\n"
         f"        {MARKER_BUILD}\n"
+        "        # Skip entries that are not directories: Edk2Path aborts the whole\n"
+        "        # build with NotADirectoryError instead of warning, and a baseline\n"
+        "        # run has no UniXNU checkout for the variable to point at.\n"
         "        result.extend(\n"
-        "            p for p in os.environ.get('ALOHA_EXTRA_PACKAGES', '').split(os.pathsep) if p\n"
+        "            p for p in os.environ.get('ALOHA_EXTRA_PACKAGES', '').split(os.pathsep)\n"
+        "            if p and os.path.isdir(p)\n"
         "        )\n"
         "        return result"
     )
-    build_py.write_text(text.replace(needle, replacement))
+    if target in text:
+        print(f"already patched {build_py} (PackagesPath)")
+        return
+    if needle not in text:
+        sys.exit(f"PackagesPath loop not found in {build_py}")
+    build_py.write_text(text.replace(needle, target))
     print(f"patched {build_py} (PackagesPath)")
 
 

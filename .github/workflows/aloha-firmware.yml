@@ -137,6 +137,16 @@ jobs:
           echo "build_uefi.py $ARGS"
           echo "ALOHA_EXTRA_PACKAGES=$ALOHA_EXTRA_PACKAGES"
           python3 build_uefi.py $ARGS
+          # build_uefi.py drives the platform build through os.system and never
+          # looks at the exit status, so it reports success even when EDK II
+          # died. Check for the artefacts it should have produced.
+          fd=$(find "$ALOHA_DIR/Build" -path '*FV/SM8150_EFI.fd' -type f | head -1)
+          if [ -z "$fd" ]; then
+            echo "::error::EDK II produced no firmware volume"
+            find "$ALOHA_DIR/Build" -maxdepth 3 -name '*.fd' -o -maxdepth 3 -name '*.log' 2>/dev/null | head -20
+            exit 1
+          fi
+          echo "firmware volume: $fd ($(stat -c %s "$fd") bytes)"
 
       - name: Collect products
         run: |
