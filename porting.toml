@@ -60,30 +60,39 @@ result = "Pinned shared SM8150 source used as the soc profile."
 # --------------------------------------------------------------------- firmware
 [[area]]
 id = "firmware"
-status = "planned"
+status = "implemented"
 components = ["DarwinBoot"]
-paths = ["package/firmware/README.md"]
+paths = ["board.toml", "package/firmware/README.md"]
 inputs = [
-  "Mu-Silicium platform support for SM8150",
+  "Mu-Silicium raphael platform: Platforms/Xiaomi/raphaelPkg in Aruvelut-123/Mu-Silicium-raphael, branch raphael-bringup",
+  "Project Aloha vendor binaries (Binaries/raphael, Resources/DTBs/raphael.dtb), vendored into that branch",
   "Device memory map and reserved regions for the firmware volume",
 ]
 configuration = [
-  "package/firmware is a placeholder: no DSC, FDF or platform code exists yet",
+  "board.toml [firmware] pins config raphael, DSC Platforms/Xiaomi/raphaelPkg/raphael.dsc, FD Build/raphaelPkg/{target}_CLANGPDB/FV/SILICIUM_UEFI.fd, the Mu-Silicium submodules and the PACKAGES_PATH roots",
+  "[firmware.defines] sets BUILD_UNIXNU=1: the platform DSC and FDF embed UniXNU, UniXNUDxe, UniXNURamDiskDxe and DarwinBoot only when that switch is on, through Include/UniXNU.dsc.inc and Include/UniXNU.fdf.inc",
+  "DiskIoDxe, PartitionDxe, FatPkg and EnglishDxe already come from the platform's Include/APRIORI.inc and Include/DXE.inc",
+  "SOC_TYPE 0 (SM8150-AB), USE_CUSTOM_DISPLAY_DRIVER 0 and ENABLE_SECUREBOOT 0 match what build_uefi.py produces for this board",
 ]
 procedure = [
-  "Add UniXNU, UniXNUDxe, DarwinBoot, UniXNURamDiskDxe, DiskIoDxe and FatPkg to the DSC and FDF, then run ./unixnu build firmware --uefi ../uefi-raphael",
+  "git clone -b raphael-bringup https://github.com/Aruvelut-123/Mu-Silicium-raphael ../uefi-raphael",
+  "./unixnu build firmware -D ../UniXNU-raphael --uefi ../uefi-raphael --target RELEASE",
+  "./unixnu bootimg -D ../UniXNU-raphael --uefi ../uefi-raphael",
 ]
 findings = [
-  "Firmware integration is documented upstream but no raphael platform port exists in this repository",
+  "A RELEASE build produces a 3145728-byte (0x300000) SILICIUM_UEFI.fd with FVMAIN at 99% (about 3 KB free), so any further module needs room reserved elsewhere or a larger FD",
+  "Upstream UniXNU has no raphael platform; this board relies on the fork above and on board.toml pointing at it",
+  "The fork's own CI builds the stock firmware (BUILD_UNIXNU=0) only; the UniXNU variant is built by this repository's firmware step",
 ]
 completion = [
   "A firmware volume builds and UniXNU draws its boot menu on raphael",
 ]
 limits = [
-  "Without a firmware volume only kernel, EFI package and boot image can be produced",
+  "Nothing on this area has been verified on the handset yet: the FD builds, but no boot has been attempted",
+  "The device tree for bootimg still comes from the firmware preflight, not from the vendor DTB",
 ]
 next_action = [
-  "Create the uefi-raphael Mu-Silicium platform with the required DSC and FDF modules",
+  "Flash the firmware and a boot image on raphael and confirm the UniXNU menu, then DarwinBoot handoff",
 ]
 
 # -------------------------------------------------------------------------- cpu

@@ -146,12 +146,23 @@ macOS; CI installs both prerequisites.
 
 `scripts/build.sh` runs the same sequence and honours `UNIXNU_DIR` / `UEFI_DIR`.
 
-Firmware and `boot.img` need a `uefi-raphael` Mu-Silicium checkout with UniXNU,
-UniXNUDxe, DarwinBoot, UniXNURamDiskDxe, DiskIoDxe and FatPkg in its DSC/FDF —
-see [UEFI firmware integration](https://unixnu.com/porting/uefi-firmware).
-Without it the kernel and the `UniXNU.efi` package still build; `boot.img`
-cannot, since it embeds the firmware volume. Dispatch the workflow with
-`uefi_repository=<owner/name>` once such a port exists.
+Firmware and `boot.img` need a Mu-Silicium checkout with UniXNU, UniXNUDxe,
+DarwinBoot, UniXNURamDiskDxe, DiskIoDxe and FatPkg in its DSC/FDF — see
+[UEFI firmware integration](https://unixnu.com/porting/uefi-firmware). For this
+board that checkout is
+[Aruvelut-123/Mu-Silicium-raphael](https://github.com/Aruvelut-123/Mu-Silicium-raphael),
+branch `raphael-bringup`: a raphael-only tree that vendors the Project Aloha
+vendor binaries, so no private input is needed. Clone it next to this
+repository and pass it as `--uefi`:
+```sh
+git clone -b raphael-bringup https://github.com/Aruvelut-123/Mu-Silicium-raphael ../uefi-raphael
+```
+`board.toml [firmware]` names its config, DSC, FD path, submodules and the
+package roots; its `defines` set `BUILD_UNIXNU=1`, because the DSC only embeds
+the XNU boot chain when that switch is on. Without a checkout the kernel and the
+`UniXNU.efi` package still build; `boot.img` cannot, since it embeds the
+firmware volume. Dispatch the workflow with
+`uefi_repository=Aruvelut-123/Mu-Silicium-raphael` to get a firmware there.
 
 Verify the target partition's capacity before any flash, without downloading the
 IPSW:
@@ -200,7 +211,7 @@ python3 scripts/ipsw_to_sparse.py --ipsw restore.ipsw --list
 | Kernel (arm64) | in progress | builds against the profile's XNU |
 | Kernel (arm64e) | not possible | SM8150 has no `FEAT_PAuth` |
 | EFI package | in progress | `UniXNU.efi` from CI |
-| Firmware | blocked | needs `uefi-raphael` Mu-Silicium port |
+| Firmware | builds | `Mu-Silicium-raphael` (branch `raphael-bringup`) with `BUILD_UNIXNU=1`; not booted on hardware yet |
 | Boot image | in progress | `boot.img` packs |
 | UFS storage | in progress | via `UniXNU-sm8150-common` |
 | Display | in progress | desktop bring-up |
