@@ -152,7 +152,7 @@ jobs:
           ./unixnu build firmware -D "$DEVICE_DIR" --uefi "$GITHUB_WORKSPACE/uefi-raphael" --target RELEASE
           # bootimg needs a compiled device tree; the UEFI checkout vendors the
           # board DTB that its own build appends to the kernel image.
-          ./unixnu bootimg -D "$DEVICE_DIR" --uefi "$GITHUB_WORKSPACE/uefi-raphael" \
+          ./unixnu bootimg -D "$DEVICE_DIR" --uefi "$GITHUB_WORKSPACE/uefi-raphael" --target RELEASE \
             --dtb "$GITHUB_WORKSPACE/uefi-raphael/Resources/DTBs/raphael.dtb"
 
       - name: Boot image availability
