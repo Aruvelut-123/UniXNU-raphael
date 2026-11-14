@@ -36,6 +36,7 @@ findings = [
   "iPadOS and iOS share the 22H390 build ID, so the staged kernelcache needs its own output path or the two would overwrite each other in out/ipsw/22H390/",
   "both 22H390 dmgs are AEA encrypted, so building the root image needs macOS /usr/bin/aea",
   "status resolves arch=arm64, soc=sm8150, os=ipados-18.7.12-22H390 and the device board.toml",
+  "board.toml [firmware] now records the Mu-Silicium raphael tree and [firmware.defines] BUILD_UNIXNU=1; status --json resolves it as part of the board",
 ]
 completion = [
   "Every profile root, source pin, component closure and patch order resolves without error",
@@ -95,8 +96,16 @@ next_action = [
   "Flash the firmware and a boot image on raphael and confirm the UniXNU menu, then DarwinBoot handoff",
 ]
 
+[[area.evidence]]
+kind = "source"
+reference = "board.toml"
+result = "[firmware] names config raphael, Platforms/Xiaomi/raphaelPkg/raphael.dsc, the FD path, the Mu-Silicium submodules and the PACKAGES_PATH roots; [firmware.defines] sets BUILD_UNIXNU=1 to embed the XNU boot chain."
+[[area.evidence]]
+kind = "source"
+reference = "https://github.com/Aruvelut-123/Mu-Silicium-raphael"
+result = "Branch raphael-bringup vendors the Project Aloha Binaries/raphael and Resources/DTBs/raphael.dtb and carries the BUILD_UNIXNU-gated UniXNU, UniXNUDxe, UniXNURamDiskDxe and DarwinBoot modules in raphael.dsc/raphael.fdf."
+
 # -------------------------------------------------------------------------- cpu
-evidence = []
 
 [[area]]
 id = "cpu"
